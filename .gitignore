@@ -1,0 +1,8 @@
+# ImGui config
+imgui.ini
+
+# Build directory
+build/
+
+# For now, ignore assets
+assets/
