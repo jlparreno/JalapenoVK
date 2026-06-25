@@ -1,6 +1,6 @@
 # JalapenoVK 🌶️
 
-A personal Vulkan rendering engine written in C++20, built as a learning project following the [Vulkan Tutorial](https://vulkan-tutorial.com/)
+A personal Vulkan rendering engine written in C++20, built as a learning project.
 
 ## Tech Stack
 
