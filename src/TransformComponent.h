@@ -7,7 +7,14 @@
 #include "Component.h"
 
 /**
- * @brief Component that handles the position, rotation, and scale of an entity.
+ * @brief Component that represents and manages an entity's local transform.
+ *
+ * The TransformComponent stores position, rotation (in Euler angles), and scale,
+ * and is responsible for computing the resulting model matrix used for rendering.
+ *
+ * It acts as the spatial foundation for an entity within the scene graph or ECS
+ * system, providing both relative transformation operations (Translate/Rotate/Scale)
+ * and absolute setters for direct control of the transform state.
  */
 class TransformComponent final : public Component
 {
@@ -110,19 +117,26 @@ public:
 
 private:
 
+	// ----------------------------------------------
+	// INTERNAL HELPERS
+	// ----------------------------------------------
+
 	/**
 	 * @brief Update the model matrix based on position, rotation, and scale.
 	 */
 	void UpdateModelMatrix();
 
-private:
 
-	glm::vec3 m_position = { 0.0f, 0.0f, 0.0f };
-	glm::vec3 m_rotation = { 0.0f, 0.0f, 0.0f };        // Euler angles in radians
-	glm::vec3 m_scale = { 1.0f, 1.0f, 1.0f };
+	// ----------------------------------------------
+	// MEMBERS
+	// ----------------------------------------------
 
-	glm::mat4 m_modelMatrix = glm::mat4(1.0f);
+	glm::vec3 m_position = { 0.0f, 0.0f, 0.0f };		// Local position of the entity in its parent space.
+	glm::vec3 m_rotation = { 0.0f, 0.0f, 0.0f };        // Local rotation expressed as Euler angles in radians.
+	glm::vec3 m_scale = { 1.0f, 1.0f, 1.0f };			// Local scale of the entity.
 
-	bool      m_modelMatrixDirty = true;
+	glm::mat4 m_modelMatrix{ glm::mat4(1.0f) };			// Cached model matrix combining position, rotation, and scale.
+
+	bool      m_modelMatrixDirty{ true };				// Dirty flag indicating whether the model matrix needs to be recomputed.
 };
 

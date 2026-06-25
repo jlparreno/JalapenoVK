@@ -3,10 +3,6 @@
 #include "Entity.h"
 #include "TransformComponent.h"
 
-// Most of the Component class implementation is in the header file
-// This file is mainly for any methods that need to access the Entity class
-// to avoid circular dependencies
-
 void CameraComponent::Init()
 {
 	UpdateViewMatrix();

@@ -7,10 +7,11 @@
 class Entity;
 
 /**
- * @brief Base class for all components in the engine.
+ * @brief Base class for all components in the entity-component system.
  *
- * Components are the building blocks of the entity-component system.
- * Each component encapsulates a specific behavior or property.
+ * Components are the building blocks of the ECS architecture.
+ * Each component encapsulates a specific behavior or property and is
+ * attached to an Entity, which acts as its owner and lifecycle manager.
  */
 class Component
 {
@@ -97,8 +98,12 @@ public:
 
 protected:
 
-	Entity*			m_owner = nullptr;
-	std::string		m_name;
-	bool			m_active = true;
+	// ----------------------------------------------
+	// MEMBERS
+	// ----------------------------------------------
+
+	Entity*		m_owner{ nullptr }; // Owning entity. Not owned by this class.
+	std::string m_name;             // Display name, used for debugging.
+	bool        m_active{ true };   // Whether this component participates in update and render.
 };
 

@@ -5,7 +5,18 @@
 
 #include "Component.h"
 
-class CameraComponent : public Component 
+/**
+ * @brief Perspective camera component.
+ *
+ * Manages the view and projection matrices for a camera attached to an entity.
+ * Both matrices are computed lazily: they are only recalculated when their
+ * parameters change, indicated by the corresponding dirty flag.
+ *
+ * The view matrix is derived from the owning entity's transform.
+ * The projection matrix is perspective, parameterised by FOV, aspect ratio,
+ * and near / far clip planes.
+ */
+class CameraComponent : public Component
 {
 
 public:
@@ -34,21 +45,21 @@ public:
 
     /**
      * @brief Set the field of view for perspective projection.
-     * 
+     *
      * @param fov The field of view in degrees.
      */
     void SetFieldOfView(float fov);
 
     /**
      * @brief Set the aspect ratio for perspective projection.
-     * 
+     *
      * @param ratio The aspect ratio (width / height).
      */
     void SetAspectRatio(float ratio);
 
     /**
      * @brief Set the near and far planes.
-     * 
+     *
      * @param near The near plane distance.
      * @param far The far plane distance.
      */
@@ -56,7 +67,7 @@ public:
 
     /**
      * @brief Get the field of view.
-     * 
+     *
      * @return The field of view in degrees.
      */
     float GetFieldOfView() const { return m_fov; }
@@ -91,19 +102,23 @@ public:
 
     /**
      * @brief Get the view matrix, updating it if necessary
-     * 
+     *
      * @return The view matrix.
      */
     const glm::mat4& GetViewMatrix();
 
     /**
      * @brief Get the projection matrix, updating it if necessary
-     * 
+     *
      * @return The projection matrix.
      */
     const glm::mat4& GetProjectionMatrix();
 
 private:
+
+    // ----------------------------------------------
+    // INTERNAL HELPERS
+    // ----------------------------------------------
 
     /**
      * @brief Update the view matrix based on the camera position and target.
@@ -115,17 +130,20 @@ private:
      */
     void UpdateProjectionMatrix();
 
-private:
 
-    float m_fov = 45.0f;
-    float m_aspect = 16.0f / 9.0f;
-    float m_near = 0.1f;
-    float m_far = 1000.0f;
+    // ----------------------------------------------
+    // MEMBERS
+    // ----------------------------------------------
 
-    glm::mat4 m_viewMatrix = glm::mat4(1.0f);
-    glm::mat4 m_projectionMatrix = glm::mat4(1.0f);
+    float       m_fov{ 45.0f };                         // Vertical field of view in degrees.
+    float       m_aspect{ 16.0f / 9.0f };               // Aspect ratio (width / height).
+    float       m_near{ 0.1f };                         // Near clip plane distance.
+    float       m_far{ 1000.0f };                       // Far clip plane distance.
 
-    bool m_projectionMatrixDirty = true;
-    bool m_viewMatrixDirty = true;
+    glm::mat4   m_viewMatrix{ glm::mat4(1.0f) };        // Cached view matrix.
+    glm::mat4   m_projectionMatrix{ glm::mat4(1.0f) };  // Cached projection matrix.
+
+    bool        m_viewMatrixDirty{ true };              // True when the view matrix needs recomputing.
+    bool        m_projectionMatrixDirty{ true };        // True when the projection matrix needs recomputing.
 };
 

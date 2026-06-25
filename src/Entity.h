@@ -7,10 +7,15 @@
 #include "Component.h"
 
 /**
- * @brief Entity class that can have multiple components attached to it.
+ * @brief Entity object that owns and coordinates a collection of components.
  *
- * Entities are containers for components. They don't have any behavior
- * on their own, but gain functionality through the components attached to them.
+ * An Entity acts as a lightweight container in the ECS-style object model used
+ * by the engine. It does not implement gameplay or rendering behaviour directly;
+ * instead, functionality is provided entirely by the components attached to it.
+ *
+ * The entity owns all its components, forwards lifecycle events such as Init(),
+ * Update(), and Render() to them, and provides typed helpers to add, query,
+ * remove, and test for component instances at runtime.
  */
 class Entity 
 {
@@ -28,6 +33,10 @@ public:
 	 * @brief Virtual destructor for proper cleanup.
 	 */
 	virtual ~Entity() = default;
+
+	// ----------------------------------------------
+	// LIFECYCLE
+	// ----------------------------------------------
 
 	/**
 	 * @brief Initialize all components of the entity.
@@ -170,9 +179,13 @@ public:
 
 private:
 
-	std::string								m_name;
-	bool									m_active = true;
+	// ----------------------------------------------
+	// MEMBERS
+	// ----------------------------------------------
 
-	std::vector<std::unique_ptr<Component>> m_components;
+	std::string								m_name;				// Human-readable entity identifier, mainly used for scene/debug purposes.
+	bool									m_active = true;	// Logical activation flag used by higher-level systems to enable or skip the entity.
+
+	std::vector<std::unique_ptr<Component>> m_components;		// Owned component instances attached to this entity.Preserves insertion order.
 };
 
