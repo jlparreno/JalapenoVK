@@ -26,9 +26,7 @@ void Shader::Unload()
     // Destroy Vulkan resources
     if (IsLoaded()) 
     {
-        vk::Device device = m_context.GetDevice();
-
-        device.destroyShaderModule(m_shaderModule);
+        m_shaderModule = nullptr;
 
         Resource::Unload();
     }

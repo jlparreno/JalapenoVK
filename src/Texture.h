@@ -99,10 +99,8 @@ private:
      * Also populates m_width, m_height, and m_format from the KTX metadata.
      *
      * @param filePath  Absolute or relative path to the .ktx / .ktx2 file.
-     * 
-     * @return Pointer to the mapped staging buffer data, or nullptr on failure.
      */
-    unsigned char*  LoadImageData(const std::string& filePath);
+    void LoadImageData(const std::string& filePath);
 
     /**
      * @brief Creates the GPU device-local image and performs the staging buffer upload.
@@ -112,7 +110,7 @@ private:
      *
      * @param stagingBuffer  Host-visible buffer containing the pixel data to upload.
      */
-    void            CreateVulkanImage(const vk::raii::Buffer& stagingBuffer);
+    void CreateVulkanImage(const vk::raii::Buffer& stagingBuffer);
 
 
     // ----------------------------------------------

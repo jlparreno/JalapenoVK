@@ -8,6 +8,9 @@
 #include "ResourceHandler.h"
 #include "Resource.h"
 
+// Forward declarations
+class VulkanContext;
+
 /**
  * @brief Central registry responsible for loading, storing, and unloading engine resources.
  *
@@ -45,12 +48,14 @@ public:
 	 * @brief Load a resource.
 	 * 
 	 * @tparam T The type of resource.
+	 * @tparam Args The types of arguments to pass to the resource constructor.
 	 * @param id The resource ID.
+	 * @param args The arguments to pass to the resource constructor.
 	 * 
 	 * @return A handle to the resource.
 	 */
-	template <typename T>
-	ResourceHandler<T> LoadResource(const std::string& id)
+	template <typename T, typename... Args>
+	ResourceHandler<T> LoadResource(VulkanContext& context, const std::string& id, Args &&...args)
 	{
 		static_assert(std::is_base_of<Resource, T>::value, "T must derive from Resource");
 
@@ -63,7 +68,7 @@ public:
 		}
 
 		// Create and load the resource
-		auto resource = std::make_unique<T>(id);
+		auto resource = std::make_unique<T>(context, id, std::forward<Args>(args)...);
 		if (!resource->Load())
 		{
 			// Loading failed - return invalid handle

@@ -1,4 +1,8 @@
 #include "VulkanContext.h"
+#include "ResourceManager.h"
+#include "Texture.h"
+#include "Mesh.h"
+#include "Shader.h"
 
 #include <GLFW/glfw3.h>
 
@@ -25,6 +29,7 @@ class JalapenoVK
 
 	GLFWwindow* window{ nullptr };
 	std::unique_ptr<VulkanContext> m_context{ nullptr };
+	ResourceManager resourceManager;
 
 	void initWindow()
 	{
@@ -39,6 +44,24 @@ class JalapenoVK
 	void initVulkan()
 	{
 		m_context = std::make_unique<VulkanContext>(window);
+
+		if (m_context)
+		{
+			auto texture = resourceManager.LoadResource<Texture>(*m_context, "viking_room");
+			auto mesh = resourceManager.LoadResource<Mesh>(*m_context, "viking_room");
+			auto shader = resourceManager.LoadResource<Shader>(*m_context, "shader.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
+
+			if (texture && mesh && shader)
+			{
+				if (texture->IsLoaded()) std::cout << "Texture is correctly loaded" << std::endl;
+				if (mesh->IsLoaded()) std::cout << "Mesh is correctly loaded" << std::endl;
+				if (shader->IsLoaded()) std::cout << "Shader is correctly loaded" << std::endl;
+			}
+
+			//resourceManager.UnloadResource<Texture>(texture.GetId());
+			//resourceManager.UnloadResource<Mesh>(mesh.GetId());
+			//resourceManager.UnloadResource<Shader>(shader.GetId());
+		}
 	}
 
 	void mainLoop()

@@ -4,15 +4,10 @@
 bool Texture::Load()
 {
     // Construct file path using resource ID and expected format
-    std::string filePath = "textures/" + GetId() + ".ktx";
+    std::string filePath = "assets/" + GetId() + ".ktx2";
 
     // Load raw image data from disk with format detection
-    unsigned char* data = LoadImageData(filePath);
-    if (!data) 
-    {
-        // Failed to load - return failure without partial state
-        return false;
-    }
+    LoadImageData(filePath);
 
     return Resource::Load();    // Mark resource as successfully loaded
 }
@@ -22,22 +17,18 @@ void Texture::Unload()
     // Only perform cleanup if resource is currently loaded
     if (IsLoaded()) 
     {
-        // Obtain device handle for resource destruction
-        vk::Device device = m_context.GetDevice();
-
-        // Destroy GPU objects in reverse creation order
-        // This ordering prevents use-after-free errors in GPU drivers
-        device.destroySampler(m_sampler);       // Destroy sampling configuration
-        device.destroyImageView(m_imageView);   // Destroy shader view
-        device.destroyImage(m_image);           // Destroy image object
-        device.freeMemory(m_memory);            // Release GPU memory allocation
+        // vk::raii handles destroy themselves — reset to release GPU resources explicitly
+        m_sampler   = nullptr;
+        m_imageView = nullptr;
+        m_image     = nullptr;
+        m_memory    = nullptr;
 
         // Update base class state to reflect unloaded status
         Resource::Unload();
     }
 }
 
-unsigned char* Texture::LoadImageData(const std::string& filePath)
+void Texture::LoadImageData(const std::string& filePath)
 {
     // Load KTX2 texture
     ktxTexture* kTexture;
@@ -88,8 +79,6 @@ unsigned char* Texture::LoadImageData(const std::string& filePath)
 
     // Cleanup KTX resources
     ktxTexture_Destroy(kTexture);
-
-    return nullptr;
 }
 
 void Texture::CreateVulkanImage(const vk::raii::Buffer& stagingBuffer)

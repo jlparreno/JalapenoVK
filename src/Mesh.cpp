@@ -6,7 +6,7 @@
 bool Mesh::Load()
 {
     // Construct file path using standardized naming convention
-    std::string filePath = "models/" + GetId() + ".gltf";
+    std::string filePath = "assets/" + GetId() + ".glb";
 
     // Parse geometric data from file format into CPU-accessible structures
     std::vector<Vertex>     vertices;   // Temporary CPU storage for vertex attributes
@@ -33,17 +33,14 @@ void Mesh::Unload()
     // Only proceed with cleanup if resources are currently loaded
     if (IsLoaded()) 
     {
-        // Obtain device handle for resource destruction
-        vk::Device device = m_context.GetDevice();
-
         // Destroy buffers and free GPU memory in proper sequence
         // Index resources cleaned up first to maintain clear dependency order
-        device.destroyBuffer(m_indexBuffer);         // Destroy index buffer object
-        device.freeMemory(m_indexBufferMemory);      // Release index buffer memory
+        m_indexBuffer = nullptr;			// Destroy index buffer object
+        m_indexBufferMemory = nullptr;      // Release index buffer memory
 
         // Vertex resources cleaned up second
-        device.destroyBuffer(m_vertexBuffer);        // Destroy vertex buffer object
-        device.freeMemory(m_vertexBufferMemory);     // Release vertex buffer memory
+        m_vertexBuffer = nullptr;			// Destroy vertex buffer object
+        m_vertexBufferMemory = nullptr;     // Release vertex buffer memory
 
         // Update base class state to reflect unloaded condition
         Resource::Unload();

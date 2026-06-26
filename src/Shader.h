@@ -30,7 +30,7 @@ public:
      * @param id            Unique resource identifier, used to resolve the SPIR-V file path.
      * @param shaderStage   The pipeline stage this shader will be bound to (eVertex, eFragment, eCompute).
      */
-    explicit Shader(VulkanContext& context, const std::string& id, vk::ShaderStageFlagBits shaderStage) : Resource(id), m_context(context), m_stage(shaderStage) {}
+    explicit Shader(VulkanContext& context, const std::string& id, vk::ShaderStageFlags shaderStages) : Resource(id), m_context(context), m_stages(shaderStages) {}
 
     /**
      * @brief Destructor. Ensures GPU resources are released via Unload().
@@ -72,7 +72,7 @@ public:
     /**
      * @brief Returns the pipeline stage this shader is bound to (e.g. eVertex, eFragment).
      */
-    vk::ShaderStageFlagBits GetStage() const { return m_stage; }
+    vk::ShaderStageFlags GetStages() const { return m_stages; }
 
 private:
 
@@ -109,6 +109,6 @@ private:
     // Vulkan context used for all GPU operations. Not owned by this class.
     VulkanContext&            m_context;
 
-    vk::ShaderStageFlagBits   m_stage;                    // Pipeline stage this shader is bound to.
+    vk::ShaderStageFlags      m_stages;                   // Pipeline stages this shader is bound to.
     vk::raii::ShaderModule    m_shaderModule{ nullptr };  // Compiled SPIR-V wrapped in a Vulkan shader module.
 };

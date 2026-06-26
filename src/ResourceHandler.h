@@ -47,14 +47,26 @@ public:
 	 * 
 	 * @return A pointer to the resource, or nullptr if not found.
 	 */
-	T* Get() const;
+	T* Get() const 
+	{
+		if (!m_resourceManager)
+			return nullptr;
+
+		return m_resourceManager->GetResource<T>(m_resourceId);
+	}
 
 	/**
 	 * @brief Check if the handle is valid.
 	 * 
 	 * @return True if the handle is valid, false otherwise.
 	 */
-	bool IsValid() const;
+	bool IsValid() const
+	{
+		if (!m_resourceManager)
+			return false;
+
+		return m_resourceManager->HasResource<T>(m_resourceId);
+	}
 
 
 	// ----------------------------------------------
