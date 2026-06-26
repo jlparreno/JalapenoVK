@@ -123,14 +123,14 @@ private:
     VulkanContext&          m_context;
 
     // Core Vulkan GPU resources for textures
-    vk::raii::Image         m_image     = nullptr;      // GPU image object containing pixel data
-    vk::raii::DeviceMemory  m_memory    = nullptr;      // GPU memory allocation backing the image
-    vk::raii::ImageView     m_imageView = nullptr;      // Shader-accessible view into the image
-    vk::raii::Sampler       m_sampler   = nullptr;      // Sampling configuration (filtering, wrapping, etc.)
+    vk::raii::Image         m_image     { nullptr };      // GPU image object containing pixel data
+    vk::raii::DeviceMemory  m_memory    { nullptr };      // GPU memory allocation backing the image
+    vk::raii::ImageView     m_imageView { nullptr };      // Shader-accessible view into the image
+    vk::raii::Sampler       m_sampler   { nullptr };      // Sampling configuration (filtering, wrapping, etc.)
 
     // Texture metadata
-    vk::Format              m_format    = vk::Format::eUndefined;   // Pixel format of the texture, resolved from KTX metadata at load time.
-    uint32_t                m_width     = 0;                        // Image width in pixels
-    uint32_t                m_height    = 0;                        // Image height in pixels
-    uint32_t                m_mipLevels = 1;                        // Number of mip levels. Currently fixed at 1.
+    vk::Format              m_format    { vk::Format::eUndefined };   // Pixel format of the texture, resolved from KTX metadata at load time.
+    uint32_t                m_width     { 0 };                        // Image width in pixels
+    uint32_t                m_height    { 0 };                        // Image height in pixels
+    uint32_t                m_mipLevels { 1 };                        // Number of mip levels. Currently fixed at 1.
 };
