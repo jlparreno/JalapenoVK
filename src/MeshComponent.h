@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Component.h"
+#include "Mesh.h"
 
 /**
  * @brief Component that handles the mesh data for rendering.
@@ -23,15 +24,19 @@ public:
 
     void Render() override;
 
-    //void SetMesh(Mesh* m) { mesh = m; }
+    // ----------------------------------------------
+    // GETTERS & SETTERS
+    // ----------------------------------------------
+
+    void SetMesh(Mesh* m) { m_mesh = m; }
     //void SetMaterial(Material* mat) { material = mat; }
 
-    //Mesh* GetMesh() const { return mesh; }
+    Mesh* GetMesh() const { return m_mesh; }
     //Material* GetMaterial() const { return material; }
 
 private:
 
-    //Mesh* mesh = nullptr;
+    Mesh*       m_mesh{ nullptr };
     //Material* material = nullptr;
 };
 
