@@ -67,7 +67,7 @@ public:
     /**
      * @brief Returns the Vulkan shader module handle, valid only while the shader is loaded.
      */
-    vk::ShaderModule GetShaderModule() const { return m_shaderModule; }
+    const vk::raii::ShaderModule& GetShaderModule() const { return m_shaderModule; }
 
     /**
      * @brief Returns the pipeline stage this shader is bound to (e.g. eVertex, eFragment).

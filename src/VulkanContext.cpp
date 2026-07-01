@@ -466,6 +466,22 @@ uint32_t VulkanContext::FindMemoryType(uint32_t typeFilter, vk::MemoryPropertyFl
 	throw std::runtime_error("failed to find suitable memory type!");
 }
 
+vk::Format VulkanContext::FindSupportedFormat(const std::vector<vk::Format>& candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features)
+{
+	for (const auto format : candidates)
+	{
+		vk::FormatProperties props = m_physicalDevice.getFormatProperties(format);
+
+		if (((tiling == vk::ImageTiling::eLinear) && ((props.linearTilingFeatures & features) == features)) ||
+			((tiling == vk::ImageTiling::eOptimal) && ((props.optimalTilingFeatures & features) == features)))
+		{
+			return format;
+		}
+	}
+
+	throw std::runtime_error("failed to find supported format!");
+}
+
 std::unique_ptr<vk::raii::CommandBuffer> VulkanContext::BeginSingleTimeCommands()
 {
 	// Create temporal command buffer

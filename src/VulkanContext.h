@@ -68,6 +68,11 @@ public:
     const vk::raii::PhysicalDevice& GetPhysicalDevice() const { return m_physicalDevice; }
 
     /**
+     * @brief Returns the surface from the device to draw to.
+     */
+    const vk::raii::SurfaceKHR&     GetSurface() const { return m_surface; }
+
+    /**
      * @brief Returns the graphics queue used for command submission.
      */
     const vk::raii::Queue&          GetGraphicsQueue() const { return m_graphicsQueue; }
@@ -163,6 +168,53 @@ public:
     vk::raii::ImageView CreateImageView(vk::Image const& image, vk::Format format, vk::ImageAspectFlags aspectFlags, uint32_t mipLevels);
 
 
+    // ----------------------------------------------
+    // MEMORY HELPERS
+    // ----------------------------------------------
+
+    /**
+     * @brief Finds a compatible memory type index for GPU allocations.
+     *
+     * Vulkan exposes multiple memory heaps and types per device. This function
+     * selects a memory type that satisfies both the requested type filter and
+     * required property flags (e.g. host-visible, device-local).
+     *
+     * @param typeFilter Bitmask of allowed memory types.
+     * @param properties Desired memory property flags.
+     *
+     * @return Index of a compatible memory type.
+     */
+    uint32_t FindMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
+
+
+    vk::Format FindSupportedFormat(const std::vector<vk::Format>& candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features);
+
+
+    // ----------------------------------------------
+    // COMMANDS HELPERS
+    // ----------------------------------------------
+
+    /**
+     * @brief Begins recording a one-time command buffer for short-lived GPU operations.
+     *
+     * Allocates a transient command buffer from the command pool, begins recording,
+     * and returns it for immediate use. Typically used for staging operations.
+     *
+     * @return Pointer to an active command buffer ready for recording.
+     */
+    std::unique_ptr<vk::raii::CommandBuffer> BeginSingleTimeCommands();
+
+    /**
+     * @brief Ends recording and submits a one-time command buffer to the GPU.
+     *
+     * Submits the command buffer to the graphics queue, waits for execution to
+     * complete, and frees the temporary buffer resources.
+     *
+     * @param commandBuffer Command buffer previously started with BeginSingleTimeCommands().
+     */
+    void EndSingleTimeCommands(const vk::raii::CommandBuffer& commandBuffer) const;
+
+
 private:
 
     // ----------------------------------------------
@@ -247,40 +299,6 @@ private:
      * @return True if the device satisfies all requirements, false otherwise.
      */
     bool IsDeviceSuitable(const vk::raii::PhysicalDevice& physicalDevice);
-
-    /**
-     * @brief Finds a compatible memory type index for GPU allocations.
-     *
-     * Vulkan exposes multiple memory heaps and types per device. This function
-     * selects a memory type that satisfies both the requested type filter and
-     * required property flags (e.g. host-visible, device-local).
-     *
-     * @param typeFilter Bitmask of allowed memory types.
-     * @param properties Desired memory property flags.
-     *
-     * @return Index of a compatible memory type.
-     */
-    uint32_t FindMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
-
-    /**
-     * @brief Begins recording a one-time command buffer for short-lived GPU operations.
-     *
-     * Allocates a transient command buffer from the command pool, begins recording,
-     * and returns it for immediate use. Typically used for staging operations.
-     *
-     * @return Pointer to an active command buffer ready for recording.
-     */
-    std::unique_ptr<vk::raii::CommandBuffer> BeginSingleTimeCommands();
-
-    /**
-     * @brief Ends recording and submits a one-time command buffer to the GPU.
-     *
-     * Submits the command buffer to the graphics queue, waits for execution to
-     * complete, and frees the temporary buffer resources.
-     *
-     * @param commandBuffer Command buffer previously started with BeginSingleTimeCommands().
-     */
-    void EndSingleTimeCommands(const vk::raii::CommandBuffer& commandBuffer) const;
 
 
     // ----------------------------------------------

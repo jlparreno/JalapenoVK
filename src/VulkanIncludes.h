@@ -1,4 +1,8 @@
 #pragma once
+#include <cstdint>
+
+static constexpr uint32_t k_maxFramesInFlight = 2;
+static constexpr uint32_t k_maxRenderables = 1;
 
 /** Selects between traditional Vulkan-Hpp include style and C++20 module import.
 *
