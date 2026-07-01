@@ -54,7 +54,7 @@ void Texture::LoadImageData(const std::string& filePath)
     stagingBufferMemory.unmapMemory();
 
     // Get mipmap levels. For now, we will use only one
-    //mipLevels = kTexture->numLevels;
+    m_mipLevels = kTexture->numLevels;
 
     // Check if the KTX texture has a format
     if (kTexture->classId == ktxTexture2_c)
@@ -76,6 +76,12 @@ void Texture::LoadImageData(const std::string& filePath)
 
     // GPU image
     CreateVulkanImage(stagingBuffer);
+
+    // Create texture image view
+    CreateTextureImageView();
+
+    // Create texture sampler
+    CreateTextureSampler();
 
     // Cleanup KTX resources
     ktxTexture_Destroy(kTexture);
@@ -100,4 +106,40 @@ void Texture::CreateVulkanImage(const vk::raii::Buffer& stagingBuffer)
 
     // Transition image layout for shader reading optimal.
     m_context.TransitionImageLayout(m_image, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal, m_mipLevels);
+}
+
+void Texture::CreateTextureImageView()
+{
+    m_imageView = m_context.CreateImageView(*m_image, m_format, vk::ImageAspectFlagBits::eColor, m_mipLevels); // Miplevels because it is a texture
+}
+
+void Texture::CreateTextureSampler()
+{
+    vk::PhysicalDeviceProperties properties = m_context.GetPhysicalDevice().getProperties();
+
+    // This sampler is configured to:
+    //   - Use linear filtering for magnification and minification.
+    //   - Use linear interpolation between mip levels.
+    //   - Repeat texture coordinates outside the [0,1] range.
+    //   - Enable anisotropic filtering using the maximum level supported
+    //     by the physical device.
+    //   - Enable full range of mipmap levels to be used with minLod and maxLod
+    vk::SamplerCreateInfo samplerInfo
+    {
+        .magFilter = vk::Filter::eLinear,
+        .minFilter = vk::Filter::eLinear,
+        .mipmapMode = vk::SamplerMipmapMode::eLinear,
+        .addressModeU = vk::SamplerAddressMode::eRepeat,
+        .addressModeV = vk::SamplerAddressMode::eRepeat,
+        .addressModeW = vk::SamplerAddressMode::eRepeat,
+        .mipLodBias = 0.0f,
+        .anisotropyEnable = vk::True,
+        .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+        .compareEnable = vk::False,
+        .compareOp = vk::CompareOp::eAlways,
+        .minLod = 0.0f,
+        .maxLod = vk::LodClampNone
+    };
+
+    m_sampler = vk::raii::Sampler(m_context.GetDevice(), samplerInfo);
 }

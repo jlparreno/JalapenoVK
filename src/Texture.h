@@ -112,6 +112,9 @@ private:
      */
     void CreateVulkanImage(const vk::raii::Buffer& stagingBuffer);
 
+    void CreateTextureImageView();
+
+    void CreateTextureSampler();
 
     // ----------------------------------------------
     // MEMBERS
