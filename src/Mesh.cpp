@@ -110,10 +110,9 @@ bool Mesh::LoadMeshData(const std::string& filePath, std::vector<Vertex>& vertic
 				Vertex vertex{};
 
 				const float* pos = reinterpret_cast<const float*>(&posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset + i * 12]);
-				// glTF uses a right-handed coordinate system with Y-up
-				// Vulkan uses a right-handed coordinate system with Y-down
-				// We need to flip the Y coordinate
-				vertex.position = { pos[0], -pos[1], pos[2] };
+				// glTF is Y-up. We keep the model in its native Y-up world space and rely on the
+				// projection matrix (proj[1][1] *= -1 in the renderer) to handle Vulkan's Y-down NDC.
+				vertex.position = { pos[0], pos[1], pos[2] };
 
 				if (hasTexCoords)
 				{
