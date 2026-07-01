@@ -1,5 +1,6 @@
 #include "VulkanContext.h"
 #include "ResourceManager.h"
+#include "Renderer.h"
 #include "Texture.h"
 #include "Mesh.h"
 #include "Shader.h"
@@ -8,6 +9,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 
 const uint32_t WIDTH  = 800;
@@ -27,57 +29,75 @@ class JalapenoVK
 
   private:
 
-	GLFWwindow* window{ nullptr };
-	std::unique_ptr<VulkanContext> m_context{ nullptr };
-	ResourceManager resourceManager;
+	GLFWwindow*                     m_window{ nullptr };
+ 
+	std::unique_ptr<VulkanContext>  m_context;			// MUST be the first member declared / last destroyed: every other Vulkan-holding member depends on its Device.
+	std::unique_ptr<Renderer>       m_renderer;
+	ResourceManager                 m_resourceManager;
 
 	void initWindow()
 	{
 		glfwInit();
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-		window = glfwCreateWindow(WIDTH, HEIGHT, "JalapenoVK", nullptr, nullptr);
+		m_window = glfwCreateWindow(WIDTH, HEIGHT, "JalapenoVK", nullptr, nullptr);
+
+		// Route framebuffer resize events back into the renderer via a static trampoline.
+		glfwSetWindowUserPointer(m_window, this);
+		glfwSetFramebufferSizeCallback(m_window, framebufferResizeCallback);
+	}
+
+	static void framebufferResizeCallback(GLFWwindow* window, int /*width*/, int /*height*/)
+	{
+		auto* app = static_cast<JalapenoVK*>(glfwGetWindowUserPointer(window));
+		if (app && app->m_renderer)
+		{
+			app->m_renderer->OnFramebufferResized();
+		}
 	}
 
 	void initVulkan()
 	{
-		m_context = std::make_unique<VulkanContext>(window);
+		m_context = std::make_unique<VulkanContext>(m_window);
 
-		if (m_context)
+		// Load the resources the current scene needs. Ownership stays in the ResourceManager;
+		// the returned handles are used only to validate that the load succeeded.
+		auto texture = m_resourceManager.LoadResource<Texture>(*m_context, "viking_room");
+		auto mesh    = m_resourceManager.LoadResource<Mesh>(*m_context, "viking_room");
+		auto shader  = m_resourceManager.LoadResource<Shader>(*m_context, "shader.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
+
+		if (!texture || !mesh || !shader)
 		{
-			auto texture = resourceManager.LoadResource<Texture>(*m_context, "viking_room");
-			auto mesh = resourceManager.LoadResource<Mesh>(*m_context, "viking_room");
-			auto shader = resourceManager.LoadResource<Shader>(*m_context, "shader.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
-
-			if (texture && mesh && shader)
-			{
-				if (texture->IsLoaded()) std::cout << "Texture is correctly loaded" << std::endl;
-				if (mesh->IsLoaded()) std::cout << "Mesh is correctly loaded" << std::endl;
-				if (shader->IsLoaded()) std::cout << "Shader is correctly loaded" << std::endl;
-			}
-
-			//resourceManager.UnloadResource<Texture>(texture.GetId());
-			//resourceManager.UnloadResource<Mesh>(mesh.GetId());
-			//resourceManager.UnloadResource<Shader>(shader.GetId());
+			throw std::runtime_error("Failed to load required resources");
 		}
+
+		m_renderer = std::make_unique<Renderer>(*m_context, m_resourceManager, m_window);
 	}
 
 	void mainLoop()
 	{
-		while (!glfwWindowShouldClose(window))
+		while (!glfwWindowShouldClose(m_window))
 		{
 			glfwPollEvents();
+			m_renderer->Render(std::vector<Entity*>());
 		}
+
+		// Ensure the GPU is idle before we start tearing GPU-side resources down.
+		m_renderer->WaitIdle();
 	}
 
 	void cleanup()
 	{
-		// Destroy context before the window
+		// Release Vulkan-side objects before shutting down the platform layer.
+		// Order matters: the renderer holds the swapchain + per-pass state, resources
+		// hold GPU buffers/images, and all of them require the VulkanContext (device)
+		// to be alive during their destructors.
+		m_resourceManager.UnloadAllResources();
+		m_renderer.reset();
 		m_context.reset();
 
-		glfwDestroyWindow(window);
+		glfwDestroyWindow(m_window);
 		glfwTerminate();
 	}
 };
