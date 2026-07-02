@@ -112,8 +112,20 @@ private:
      */
     void CreateVulkanImage(const vk::raii::Buffer& stagingBuffer);
 
+    /**
+     * @brief Creates the shader-accessible image view for the loaded texture.
+     *
+     * Wraps m_image in a 2D vk::ImageView with the format and mip level count
+     * populated by LoadImageData(), ready to be bound in descriptor sets.
+     */
     void CreateTextureImageView();
 
+    /**
+     * @brief Creates the sampler used to read this texture in shaders.
+     *
+     * Configures filtering, addressing mode, and anisotropy according to the
+     * engine's default sampling parameters.
+     */
     void CreateTextureSampler();
 
     // ----------------------------------------------

@@ -78,9 +78,10 @@ vk::Result Swapchain::Present(uint32_t imageIndex)
 
 void Swapchain::Recreate()
 {
-    // Handle minimization — wait until the window has a non-zero size
+    // Handle minimization. Wait until the window has a non-zero size
     int width = 0, height = 0;
     glfwGetFramebufferSize(m_window, &width, &height);
+
     while (width == 0 || height == 0)
     {
         glfwGetFramebufferSize(m_window, &width, &height);
@@ -94,7 +95,7 @@ void Swapchain::Recreate()
 
     CreateSwapchain();
     CreateImageViews();
-    CreateSyncObjects();  // renderFinished semaphores are per-image; recreate to match the new image count.
+    CreateSyncObjects();
 }
 
 

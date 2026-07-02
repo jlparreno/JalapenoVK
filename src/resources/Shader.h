@@ -3,8 +3,6 @@
 #include "core/VulkanIncludes.h"
 #include "resources/Resource.h"
 
-#include <ktx.h>
-
 // Forward declarations
 class VulkanContext;
 

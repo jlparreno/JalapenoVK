@@ -1,10 +1,12 @@
 #include "render/Renderer.h"
 
 #include "core/VulkanContext.h"
+#include "render/RenderTypes.h"
 #include "render/passes/GeometryPass.h"
 #include "resources/Mesh.h"
 #include "resources/Shader.h"
 #include "resources/Texture.h"
+#include "scene/TransformComponent.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -85,9 +87,7 @@ void Renderer::Render(const std::vector<Entity*>& entities)
 
     vk::Result presentResult = m_swapchain.Present(imageIndex);
 
-    if (presentResult == vk::Result::eErrorOutOfDateKHR
-     || presentResult == vk::Result::eSuboptimalKHR
-     || m_framebufferResized)
+    if (presentResult == vk::Result::eErrorOutOfDateKHR || presentResult == vk::Result::eSuboptimalKHR || m_framebufferResized)
     {
         m_framebufferResized = false;
         HandleSwapchainRecreation();

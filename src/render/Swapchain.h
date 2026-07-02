@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/VulkanIncludes.h"
+#include "render/RenderTypes.h"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -163,5 +164,5 @@ private:
     // the image guarantees the semaphore is safe to reuse.
     std::vector<vk::raii::Semaphore>        m_presentCompleteSemaphores;   // Per frame-in-flight: signaled by acquire, waited on by submit.
     std::vector<vk::raii::Semaphore>        m_renderFinishedSemaphores;    // Per swapchain image:  signaled by submit,  waited on by present.
-    std::vector<vk::raii::Fence>            m_inFlightFences;              // Per frame-in-flight: CPU gate for the slot's previous submission.
+    std::vector<vk::raii::Fence>            m_inFlightFences;              // Per frame-in-flight: CPU gate for the slots previous submission.
 };

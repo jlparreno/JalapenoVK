@@ -7,6 +7,15 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 
+#include <array>
+#include <cstdint>
+
+// Number of frames the CPU is allowed to prepare ahead of the GPU (double buffering).
+static constexpr uint32_t k_maxFramesInFlight = 2;
+
+// Placeholder cap on renderable entities until Scene/World is introduced.
+static constexpr uint32_t k_maxRenderables    = 1;
+
 /**
  * @brief Per-vertex data layout passed to the Vulkan pipeline.
  *
@@ -54,16 +63,29 @@ struct Vertex
 };
 
 
+/**
+ * @brief Per-object transform block uploaded to the vertex shader each frame.
+ *
+ * Layout matches the std140-aligned UBO expected by the shader; the alignas(16)
+ * qualifiers keep each matrix on a 16-byte boundary independent of the host
+ * compiler's packing rules.
+ */
 struct UniformBufferObject
 {
-	alignas(16) glm::mat4 model;
-	alignas(16) glm::mat4 view;
-	alignas(16) glm::mat4 proj;
+	alignas(16) glm::mat4 model;    // Model matrix in world space.
+	alignas(16) glm::mat4 view;     // View matrix supplied by the camera.
+	alignas(16) glm::mat4 proj;     // Perspective projection matrix.
 };
 
+/**
+ * @brief GPU-side uniform buffer paired with a persistent host-visible mapping.
+ *
+ * Owns the vk::Buffer and its backing memory, and keeps the mapping alive for
+ * the lifetime of the buffer so per-frame updates can be written directly without repeated map/unmap calls.
+ */
 struct UBOBuffer
 {
-	vk::raii::Buffer		buffer{ nullptr };
-	vk::raii::DeviceMemory	memory{ nullptr };
-	void*					mapped{ nullptr };
+	vk::raii::Buffer		buffer{ nullptr };  // GPU buffer containing the uniform block.
+	vk::raii::DeviceMemory	memory{ nullptr };  // GPU memory allocation backing the buffer.
+	void*					mapped{ nullptr };  // Persistent host mapping used for per-frame writes.
 };

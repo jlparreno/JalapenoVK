@@ -4,6 +4,7 @@
 #include "resources/ResourceManager.h"
 #include "resources/Shader.h"
 #include "resources/Texture.h"
+#include "scene/Entity.h"
 
 #include <GLFW/glfw3.h>
 
@@ -11,6 +12,7 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 const uint32_t WIDTH  = 800;
 const uint32_t HEIGHT = 600;
