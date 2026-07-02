@@ -102,6 +102,8 @@ file(GLOB_RECURSE JALAPENO_SOURCES
 
 add_executable(JalapenoVK ${JALAPENO_SOURCES})
 
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${JALAPENO_SOURCES})
+
 add_dependencies(JalapenoVK shaders)
 
 set_target_properties(JalapenoVK PROPERTIES
@@ -125,7 +127,10 @@ target_link_libraries(JalapenoVK PRIVATE
     tinygltf::tinygltf
     tinyobjloader::tinyobjloader
 )
-target_include_directories(JalapenoVK PRIVATE ${STB_INCLUDEDIR})
+target_include_directories(JalapenoVK PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${STB_INCLUDEDIR}
+)
 
 if(ENABLE_CPP20_MODULE)
     target_compile_definitions(JalapenoVK PRIVATE USE_CPP20_MODULES=1)

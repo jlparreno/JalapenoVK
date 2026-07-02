@@ -1,9 +1,9 @@
-#include "VulkanContext.h"
-#include "ResourceManager.h"
-#include "Renderer.h"
-#include "Texture.h"
-#include "Mesh.h"
-#include "Shader.h"
+#include "core/VulkanContext.h"
+#include "render/Renderer.h"
+#include "resources/Mesh.h"
+#include "resources/ResourceManager.h"
+#include "resources/Shader.h"
+#include "resources/Texture.h"
 
 #include <GLFW/glfw3.h>
 
