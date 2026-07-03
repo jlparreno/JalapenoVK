@@ -4,18 +4,19 @@
 #include "resources/ResourceManager.h"
 #include "resources/Shader.h"
 #include "resources/Texture.h"
+#include "scene/CameraControllerComponent.h"
 #include "scene/Entity.h"
 
 #include <GLFW/glfw3.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
-#include <vector>
 
-const uint32_t WIDTH  = 800;
-const uint32_t HEIGHT = 600;
+const uint32_t WIDTH  = 1920;
+const uint32_t HEIGHT = 1080;
 
 class JalapenoVK
 {
@@ -32,10 +33,13 @@ class JalapenoVK
   private:
 
 	GLFWwindow*                     m_window{ nullptr };
- 
+
 	std::unique_ptr<VulkanContext>  m_context;			// MUST be the first member declared / last destroyed: every other Vulkan-holding member depends on its Device.
 	std::unique_ptr<Renderer>       m_renderer;
 	ResourceManager                 m_resourceManager;
+
+	// Input state
+	CameraControllerComponent*      m_cameraController{ nullptr };  // Non-owning; resolved after the renderer creates the camera entity.
 
 	void initWindow()
 	{
@@ -75,14 +79,28 @@ class JalapenoVK
 		}
 
 		m_renderer = std::make_unique<Renderer>(*m_context, m_resourceManager, m_window);
+
+		// Cache a non-owning handle to the camera controller so the input layer can drive it.
+		if (Entity* camera = m_renderer->GetActiveCamera())
+		{
+			m_cameraController = camera->GetComponent<CameraControllerComponent>();
+		}
 	}
 
 	void mainLoop()
 	{
+		auto lastFrameTime = std::chrono::steady_clock::now();
+
 		while (!glfwWindowShouldClose(m_window))
 		{
 			glfwPollEvents();
-			m_renderer->Render(std::vector<Entity*>());
+
+			const auto now = std::chrono::steady_clock::now();
+			const auto deltaTime = std::chrono::duration<float>(now - lastFrameTime);
+			lastFrameTime = now;
+
+			m_renderer->UpdateEntities(deltaTime);
+			m_renderer->Render();
 		}
 
 		// Ensure the GPU is idle before we start tearing GPU-side resources down.

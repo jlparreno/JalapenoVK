@@ -8,7 +8,7 @@ void Entity::Init()
 	}
 }
 
-void Entity::Update(std::chrono::milliseconds deltaTime)
+void Entity::Update(std::chrono::duration<float> deltaTime)
 {
 	if (!m_active)
 		return;

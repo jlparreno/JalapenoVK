@@ -4,6 +4,8 @@
 #include "render/Swapchain.h"
 #include "render/passes/RenderPassManager.h"
 #include "resources/ResourceManager.h"
+#include "scene/CameraComponent.h"
+#include "scene/CameraControllerComponent.h"
 #include "scene/Entity.h"
 
 #define GLFW_INCLUDE_VULKAN
@@ -22,8 +24,8 @@ class GeometryPass;
  * Renderer owns the swapchain, the render pass manager, and the per-frame
  * command buffers. Each frame it acquires a swapchain image, records the
  * ordered pass sequence built by the RenderPassManager, submits the command
- * buffer, and presents the result. It does not own any scene state directly;
- * the entities to draw are supplied per call to Render().
+ * buffer, and presents the result. Scene state is currently held in a private
+ * placeholder array until a proper Scene / World system exists.
  *
  * When the surface becomes incompatible with the swapchain (window resize),
  * the Renderer coordinates a full swapchain recreation and propagates the
@@ -67,10 +69,8 @@ public:
      * Acquires the next swapchain image, records and submits the command buffer
      * for every enabled pass, and presents the result. Handles eErrorOutOfDateKHR
      * transparently by recreating the swapchain and skipping the frame.
-     *
-     * @param entities  Entities visible this frame.
      */
-    void Render(const std::vector<Entity*>& entities);
+    void Render();
 
     /**
      * @brief Blocks the calling thread until the GPU has finished all outstanding work.
@@ -84,6 +84,17 @@ public:
      */
     void OnFramebufferResized() { m_framebufferResized = true; }
 
+    /**
+     * @brief Ticks every entity in the placeholder scene by the given delta.
+     *
+     * Temporary shim while entities live inside the Renderer; when a Scene / World
+     * system exists this responsibility will move there and the Renderer will only draw.
+     *
+     * @param deltaTime  Time elapsed since the previous frame, in seconds.
+     */
+    void UpdateEntities(std::chrono::duration<float> deltaTime);
+
+
     // ----------------------------------------------
     // GETTERS & SETTERS
     // ----------------------------------------------
@@ -92,6 +103,13 @@ public:
      * @brief Returns a reference to the owned swapchain.
      */
     Swapchain& GetSwapchain() { return m_swapchain; }
+
+    /**
+     * @brief Returns the entity used as the active camera, or nullptr if none is bound.
+     *
+     * Non-owning; the returned pointer stays valid for the lifetime of the Renderer.
+     */
+    Entity* GetActiveCamera() const { return m_activeCamera; }
 
 
 private:
@@ -158,5 +176,8 @@ private:
 
     GeometryPass*                           m_geometryPass{ nullptr };          // Non-owning pointer, so Renderer can push per-frame data.
 
-    std::array<Entity, 1>                   m_entities { Entity("Entity1") };   // Placeholder scene until Scene/World is introduced.
+    Entity*                                 m_activeCamera{ nullptr };          // Non-owning; points into m_entities.
+    
+    // Placeholder scene until Scene/World is introduced.
+    std::array<Entity, 2>                   m_entities { Entity("Model"), Entity("Camera") };
 };

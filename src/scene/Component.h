@@ -44,10 +44,10 @@ public:
 
 	/**
 	 * @brief Update the component. Called every frame.
-	 * 
-	 * @param deltaTime The time elapsed since the last frame.
+	 *
+	 * @param deltaTime The time elapsed since the last frame, in seconds.
 	 */
-	virtual void Update(std::chrono::milliseconds deltaTime) {}
+	virtual void Update(std::chrono::duration<float> deltaTime) {}
 
 	/**
 	 * @brief Render the component.

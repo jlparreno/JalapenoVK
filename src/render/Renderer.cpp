@@ -21,7 +21,15 @@ Renderer::Renderer(VulkanContext& context, ResourceManager& resourceManager, GLF
     SetupRenderPasses();
 }
 
-void Renderer::Render(const std::vector<Entity*>& entities)
+void Renderer::UpdateEntities(std::chrono::duration<float> deltaTime)
+{
+    for (Entity& entity : m_entities)
+    {
+        entity.Update(deltaTime);
+    }
+}
+
+void Renderer::Render()
 {
     uint32_t imageIndex = 0;
     vk::Result acquireResult = m_swapchain.AcquireNextImage(imageIndex);
@@ -40,31 +48,20 @@ void Renderer::Render(const std::vector<Entity*>& entities)
     // Feed the geometry pass with the transient state it needs for this frame
     if (m_geometryPass)
     {
-        const vk::Extent2D extent = m_swapchain.GetExtent();
-        const float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
-
-        // Temporary camera — will move to a scene CameraComponent in a future step.
-        // World is Y-up to match the glTF asset convention we load.
-        glm::mat4 view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
-                                     glm::vec3(0.0f, 0.0f, 0.0f),
-                                     glm::vec3(0.0f, 1.0f, 0.0f));
-        glm::mat4 proj = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 10.0f);
+        // View / projection from the active camera
+        auto* camera = m_activeCamera ? m_activeCamera->GetComponent<CameraComponent>() : nullptr;
+        glm::mat4 view = camera ? camera->GetViewMatrix()       : glm::mat4(1.0f);
+        glm::mat4 proj = camera ? camera->GetProjectionMatrix() : glm::mat4(1.0f);
         proj[1][1] *= -1.0f; // GLM assumes OpenGL NDC (Y up); Vulkan is Y down.
 
-        // Simple time-based rotation around the world Y axis. Lives here (not inside the pass)
-        // so GeometryPass stays agnostic of scene animation logic.
+        // Use model transform if it exists
         auto* transform = m_entities[0].GetComponent<TransformComponent>();
-        if (transform)
-        {
-            const float time = static_cast<float>(glfwGetTime());
-            transform->SetRotation({ 0.0f, time * glm::radians(90.0f), 0.0f });
-        }
         glm::mat4 model = transform ? transform->GetModelMatrix() : glm::mat4(1.0f);
 
         GeometryPass::FrameData frameData
         {
             .swapchainImageView = m_swapchain.GetImageView(imageIndex),
-            .extent             = extent,
+            .extent             = m_swapchain.GetExtent(),
             .mesh               = m_resourceManager.GetResource<Mesh>("viking_room"),
             .model              = model,
             .view               = view,
@@ -111,9 +108,20 @@ void Renderer::HandleSwapchainRecreation()
     // waitIdle() internally, so by the time we reach the pass update the GPU is idle.
     m_swapchain.Recreate();
 
+    const vk::Extent2D extent = m_swapchain.GetExtent();
+
     if (m_geometryPass)
     {
-        m_geometryPass->OnResize(m_swapchain.GetExtent());
+        m_geometryPass->OnResize(extent);
+    }
+
+    // Update the active camera's aspect ratio so the projection matches the new surface.
+    if (m_activeCamera)
+    {
+        if (auto* camera = m_activeCamera->GetComponent<CameraComponent>())
+        {
+            camera->SetAspectRatio(static_cast<float>(extent.width) / static_cast<float>(extent.height));
+        }
     }
 }
 
@@ -132,10 +140,35 @@ void Renderer::SetupRenderPasses()
 
 void Renderer::SetupEntities()
 {
-    auto* transformComponent = m_entities[0].AddComponent<TransformComponent>();
-    transformComponent->SetPosition({ 0.0f, 0.0f, 0.0f });
-    transformComponent->SetRotation({ 0.0f, 0.0f, 0.0f });
-    transformComponent->SetScale   ({ 1.0f, 1.0f, 1.0f });
+    // Model entity: the viking_room mesh transform.
+    auto* modelTransform = m_entities[0].AddComponent<TransformComponent>();
+    modelTransform->SetPosition({ 0.0f, 0.0f, 0.0f });
+    modelTransform->SetRotation({ 0.0f, -45.0f, 0.0f });
+    modelTransform->SetScale   ({ 1.0f, 1.0f, 1.0f });
+
+    // CAMERA ENTITY
+    
+    // Tranform component
+    // Order matters: CameraComponent::Init and CameraControllerComponent::Init both read the Transform, 
+    // so the Transform (with its initial pose) must be added first.
+    auto* cameraTransform = m_entities[1].AddComponent<TransformComponent>();
+    cameraTransform->SetPosition({ 2.0f, 2.0f, 2.0f });
+
+    // Orient from (2,2,2) towards the origin so the initial view matches the previous hardcoded camera.
+    // Convention: local forward = -Z, so yaw rotates around world Y and yaw=0 looks at -Z.
+    constexpr float initialYawDeg   = 45.0f;
+    constexpr float initialPitchDeg = -35.0f;
+    cameraTransform->SetRotation({ glm::radians(initialPitchDeg), glm::radians(initialYawDeg), 0.0f });
+
+    // Camera component
+    // Match aspect to the current swapchain extent so the first frame is correct.
+    auto* cameraComponent = m_entities[1].AddComponent<CameraComponent>();
+    cameraComponent->SetAspectRatio(static_cast<float>(m_swapchain.GetExtent().width) / static_cast<float>(m_swapchain.GetExtent().height));
+
+    // Camera Controlles component
+    m_entities[1].AddComponent<CameraControllerComponent>();
+
+    m_activeCamera = &m_entities[1];
 }
 
 void Renderer::CreateCommandBuffers()

@@ -46,9 +46,9 @@ public:
 	/**
 	 * @brief Update all components of the entity.
 	 *
-	 * @param deltaTime The time elapsed since the last frame.
+	 * @param deltaTime The time elapsed since the last frame, in seconds.
 	 */
-	void Update(std::chrono::milliseconds deltaTime);
+	void Update(std::chrono::duration<float> deltaTime);
 
 	/**
 	 * @brief Render all components of the entity.

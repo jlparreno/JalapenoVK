@@ -66,6 +66,11 @@ public:
     void SetClipPlanes(float near, float far);
 
     /**
+     * @brief Set the dirty flag for view matrix enabled, forcing recalculation in next frame
+     */
+    void SetViewDirty() { m_viewMatrixDirty = true; };
+
+    /**
      * @brief Get the field of view.
      *
      * @return The field of view in degrees.
