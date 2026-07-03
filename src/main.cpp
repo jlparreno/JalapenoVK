@@ -10,14 +10,22 @@
 #include <GLFW/glfw3.h>
 #include <glm/vec3.hpp>
 
+// stb_image is header-only: the implementation must be emitted in exactly one TU.
+// Move this define to Texture.cpp when PNG loading lands there.
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include <chrono>
 #include <cstdlib>
+#include <iomanip>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 
 const uint32_t WIDTH  = 1920;
 const uint32_t HEIGHT = 1080;
+const char*    TITLE  = "JalapenoVK";
 
 class JalapenoVK
 {
@@ -45,13 +53,19 @@ class JalapenoVK
 	double                          m_lastCursorY{ 0.0 };
 	bool                            m_rotating{ false };            // True while Alt + mouse button is held (Maya-style camera rotation).
 
+	// Frame timing display
+	float                           m_titleTimeCounter{ 0.0f };     // Accumulates seconds between window-title refreshes.
+
 	void initWindow()
 	{
 		glfwInit();
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-		m_window = glfwCreateWindow(WIDTH, HEIGHT, "JalapenoVK", nullptr, nullptr);
+		m_window = glfwCreateWindow(WIDTH, HEIGHT, TITLE, nullptr, nullptr);
+
+		SetWindowIcon();
+		SetFrameTimesTitle(0, 0.0f);
 
 		// Route window events back into this instance via static trampolines.
 		glfwSetWindowUserPointer(m_window, this);
@@ -94,6 +108,8 @@ class JalapenoVK
 			const auto now = std::chrono::steady_clock::now();
 			const auto deltaTime = std::chrono::duration<float>(now - lastFrameTime);
 			lastFrameTime = now;
+
+			DisplayFrameTimes(deltaTime.count());
 
 			ProcessInput();
 
@@ -154,7 +170,51 @@ class JalapenoVK
 		}
 	}
 
-	static void framebufferResizeCallback(GLFWwindow* window, int /*width*/, int /*height*/)
+	void SetWindowIcon()
+	{
+		int width = 0;
+		int height = 0;
+		int channels = 0;
+		unsigned char* pixels = stbi_load("assets/jalapeno_logo.png", &width, &height, &channels, STBI_rgb_alpha);
+		if (!pixels)
+		{
+			std::cerr << "Failed to load window icon: assets/jalapeno_logo.png" << std::endl;
+			return;
+		}
+
+		GLFWimage icon{};
+		icon.width = width;
+		icon.height = height;
+		icon.pixels = pixels;
+		glfwSetWindowIcon(m_window, 1, &icon);
+
+		stbi_image_free(pixels);
+	}
+
+	void DisplayFrameTimes(float deltaTime)
+	{
+		m_titleTimeCounter += deltaTime;
+
+		if (m_titleTimeCounter >= 1.0f)
+		{
+			m_titleTimeCounter = 0.0f;
+
+			const int   fps    = static_cast<int>(1.0f / deltaTime);
+			const float timeMs = deltaTime * 1000.0f;
+
+			SetFrameTimesTitle(fps, timeMs);
+		}
+	}
+
+	void SetFrameTimesTitle(int fps, float timeMs)
+	{
+		std::ostringstream oss;
+		oss << std::fixed << std::setprecision(2) << TITLE << "    |    FPS: " << fps << "    |    Time(ms): " << timeMs;
+
+		glfwSetWindowTitle(m_window, oss.str().c_str());
+	}
+
+	static void framebufferResizeCallback(GLFWwindow* window, [[maybe_unused]] int width, [[maybe_unused]] int height)
 	{
 		auto* app = static_cast<JalapenoVK*>(glfwGetWindowUserPointer(window));
 		if (app && app->m_renderer)
