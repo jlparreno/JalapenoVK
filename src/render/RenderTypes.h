@@ -13,8 +13,8 @@
 // Number of frames the CPU is allowed to prepare ahead of the GPU (double buffering).
 static constexpr uint32_t k_maxFramesInFlight = 2;
 
-// Placeholder cap on renderable entities until Scene/World is introduced.
-static constexpr uint32_t k_maxRenderables    = 1;
+// Forward declarations
+class Mesh;
 
 /**
  * @brief Per-vertex data layout passed to the Vulkan pipeline.
@@ -63,6 +63,12 @@ struct Vertex
 };
 
 
+struct Renderable
+{
+	Mesh*		mesh{ nullptr };
+	glm::mat4   model{ 1.0f };
+};
+
 /**
  * @brief Per-object transform block uploaded to the vertex shader each frame.
  *
@@ -72,7 +78,6 @@ struct Vertex
  */
 struct UniformBufferObject
 {
-	alignas(16) glm::mat4 model;    // Model matrix in world space.
 	alignas(16) glm::mat4 view;     // View matrix supplied by the camera.
 	alignas(16) glm::mat4 proj;     // Perspective projection matrix.
 };

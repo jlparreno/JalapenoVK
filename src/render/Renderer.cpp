@@ -7,6 +7,7 @@
 #include "resources/Shader.h"
 #include "resources/Texture.h"
 #include "scene/TransformComponent.h"
+#include "scene/MeshComponent.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -37,6 +38,24 @@ void Renderer::Render()
         throw std::runtime_error("Failed to acquire swapchain image");
     }
 
+    // Construct the list of renderables to prepare for render
+    std::vector<Renderable> renderables;
+    for (const auto& entity : m_scene.GetEntities())
+    {
+        if (!entity->IsActive())
+        {
+            continue;
+        }
+
+        auto* meshComponent = entity->GetComponent<MeshComponent>();
+        auto* transform     = entity->GetComponent<TransformComponent>();
+
+        if (meshComponent && meshComponent->GetMesh() && transform)
+        {
+            renderables.push_back({ meshComponent->GetMesh(), transform->GetModelMatrix() });
+        }
+    }
+
     // Feed the geometry pass with the transient state it needs for this frame
     if (m_geometryPass)
     {
@@ -46,18 +65,13 @@ void Renderer::Render()
         glm::mat4 proj = camera ? camera->GetProjectionMatrix() : glm::mat4(1.0f);
         proj[1][1] *= -1.0f; // GLM assumes OpenGL NDC (Y up); Vulkan is Y down.
 
-        // Use model transform if it exists
-        auto* transform = m_scene.GetEntity("Model")->GetComponent<TransformComponent>();
-        glm::mat4 model = transform ? transform->GetModelMatrix() : glm::mat4(1.0f);
-
         GeometryPass::FrameData frameData
         {
             .swapchainImageView = m_swapchain.GetImageView(imageIndex),
             .extent             = m_swapchain.GetExtent(),
-            .mesh               = m_resourceManager.GetResource<Mesh>("viking_room"),
-            .model              = model,
             .view               = view,
-            .proj               = proj
+            .proj               = proj,
+            .renderables        = renderables
         };
         m_geometryPass->SetFrameData(frameData);
     }

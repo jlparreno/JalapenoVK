@@ -45,10 +45,10 @@ public:
     {
         vk::ImageView swapchainImageView{ nullptr }; // Target for the MSAA resolve.
         vk::Extent2D  extent{};                      // Actual render area for this frame.
-        Mesh*         mesh{ nullptr };               // Mesh drawn this frame (temporary until draw-list exists).
-        glm::mat4     model{ 1.0f };                 // Model matrix of the object being drawn.
         glm::mat4     view { 1.0f };                 // View matrix supplied by the (still external) camera.
         glm::mat4     proj { 1.0f };                 // Projection matrix supplied by the camera.
+
+        std::vector<Renderable> renderables;
     };
 
     GeometryPass(const std::string& name, VulkanContext& context, const CreateInfo& info);
@@ -98,7 +98,7 @@ private:
     void CreateUniformBuffers();
     void CreateDescriptorSets();
 
-    // Copies m_frame.{model,view,proj} into the persistently mapped UBO for the given frame slot.
+    // Copies m_frame.{view,proj} into the persistently mapped UBO for the given frame slot.
     void UpdateUniformBuffer(uint32_t frameIndex);
 
     vk::SampleCountFlagBits QueryMaxUsableSampleCount() const;

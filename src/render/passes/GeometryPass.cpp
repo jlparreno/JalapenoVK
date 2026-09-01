@@ -93,7 +93,7 @@ void GeometryPass::BeginPass(vk::raii::CommandBuffer& cmd, const FrameInfo&)
 
 void GeometryPass::Render(vk::raii::CommandBuffer& cmd, const FrameInfo& frame)
 {
-    if (!m_frame.mesh) return;
+    if (m_frame.renderables.empty()) return;
 
     UpdateUniformBuffer(frame.frameIndex);
 
@@ -107,15 +107,19 @@ void GeometryPass::Render(vk::raii::CommandBuffer& cmd, const FrameInfo& frame)
         0.0f, 1.0f });
     cmd.setScissor(0, vk::Rect2D{ vk::Offset2D{ 0, 0 }, m_frame.extent });
 
-    // Bind the mesh geometry
-    cmd.bindVertexBuffers(0, m_frame.mesh->GetVertexBuffer(), { 0 });
-    cmd.bindIndexBuffer(m_frame.mesh->GetIndexBuffer(), 0, vk::IndexType::eUint32);
-
     // Bind per-frame descriptor set (UBO + texture)
-    cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipelineLayout, 0,
-                           *m_descriptorSets[frame.frameIndex], nullptr);
+    cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipelineLayout, 0, *m_descriptorSets[frame.frameIndex], nullptr);
 
-    cmd.drawIndexed(m_frame.mesh->GetIndexCount(), 1, 0, 0, 0);
+    for (auto& renderable : m_frame.renderables)
+    {
+        cmd.pushConstants<glm::mat4>(*m_pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, renderable.model);
+
+        // Bind the mesh geometry
+        cmd.bindVertexBuffers(0, renderable.mesh->GetVertexBuffer(), { 0 });
+        cmd.bindIndexBuffer(renderable.mesh->GetIndexBuffer(), 0, vk::IndexType::eUint32);
+
+        cmd.drawIndexed(renderable.mesh->GetIndexCount(), 1, 0, 0, 0);
+    }
 }
 
 void GeometryPass::EndPass(vk::raii::CommandBuffer& cmd, const FrameInfo&)
@@ -246,11 +250,17 @@ void GeometryPass::CreatePipeline()
         .pDynamicStates    = dynamicStates.data()
     };
 
+    vk::PushConstantRange pushConstantRange;
+    pushConstantRange.setStageFlags(vk::ShaderStageFlagBits::eVertex)
+                     .setOffset(0)
+                     .setSize(sizeof(glm::mat4));
+
     vk::PipelineLayoutCreateInfo pipelineLayoutInfo
     {
         .setLayoutCount         = 1,
         .pSetLayouts            = &*m_setLayout,
-        .pushConstantRangeCount = 0
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges    = &pushConstantRange
     };
     m_pipelineLayout = vk::raii::PipelineLayout(m_context.GetDevice(), pipelineLayoutInfo);
 
@@ -399,7 +409,6 @@ void GeometryPass::CreateDescriptorSets()
 void GeometryPass::UpdateUniformBuffer(uint32_t frameIndex)
 {
     UniformBufferObject ubo{};
-    ubo.model = m_frame.model;
     ubo.view  = m_frame.view;
     ubo.proj  = m_frame.proj;
 

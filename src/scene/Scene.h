@@ -23,7 +23,10 @@ class Scene
 public:
 
 	/**
-	 * @brief Constructs the scene and populates it with its initial entities.
+	 * @brief Constructs the scene and creates its default active camera.
+	 *
+	 * Scene content beyond the camera (e.g. the "Model" entity) is built externally via AddEntity().
+	 * A scene is only guaranteed to have the default camera.
 	 */
 	Scene();
 
@@ -63,6 +66,13 @@ public:
 	// ----------------------------------------------
 
 	/**
+	 * @brief Get every entity owned by the scene.
+	 *
+	 * @return The scene's entities.
+	 */
+	const std::vector<std::unique_ptr<Entity>>& GetEntities() const { return m_entities; }
+
+	/**
 	 * @brief Get an entity by name.
 	 *
 	 * @param name The name of the entity to look up.
@@ -84,15 +94,6 @@ public:
 	void SetActiveCamera(Entity* camera) { m_activeCamera = camera; };
 
 private:
-
-	// ----------------------------------------------
-	// INTERNAL HELPERS
-	// ----------------------------------------------
-
-	/**
-	 * @brief Initialize the scene.
-	 */
-	void Init();
 
 	// ----------------------------------------------
 	// MEMBERS

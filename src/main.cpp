@@ -6,7 +6,9 @@
 #include "resources/Texture.h"
 #include "scene/CameraControllerComponent.h"
 #include "scene/Entity.h"
+#include "scene/MeshComponent.h"
 #include "scene/Scene.h"
+#include "scene/TransformComponent.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/vec3.hpp>
@@ -35,8 +37,10 @@ class JalapenoVK
 	void run()
 	{
 		initWindow();
-		initScene();
 		initVulkan();
+		initResources();
+		initScene();
+		initRenderer();
 		mainLoop();
 		cleanup();
 	}
@@ -80,18 +84,40 @@ class JalapenoVK
 	void initVulkan()
 	{
 		m_context = std::make_unique<VulkanContext>(m_window);
+	}
 
+	void initResources()
+	{
 		// Load the resources the current scene needs. Ownership stays in the ResourceManager;
 		// the returned handles are used only to validate that the load succeeded.
 		auto texture = m_resourceManager.LoadResource<Texture>(*m_context, "viking_room");
-		auto mesh    = m_resourceManager.LoadResource<Mesh>(*m_context, "viking_room");
-		auto shader  = m_resourceManager.LoadResource<Shader>(*m_context, "shader.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
+		auto mesh = m_resourceManager.LoadResource<Mesh>(*m_context, "viking_room");
+		auto shader = m_resourceManager.LoadResource<Shader>(*m_context, "shader.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
 
 		if (!texture || !mesh || !shader)
 		{
 			throw std::runtime_error("Failed to load required resources");
 		}
+	}
 
+	void initScene()
+	{
+		// Create the scene with the default camera
+		m_scene = std::make_unique<Scene>();
+
+		// Add entities to the scene from here...
+		Entity* model = m_scene->AddEntity("Model");
+
+		auto* modelTransform = model->AddComponent<TransformComponent>();
+		modelTransform->SetPosition({ 0.0f, 0.0f, 0.0f });
+		modelTransform->SetRotation({ 0.0f, -45.0f, 0.0f });
+		modelTransform->SetScale({ 1.0f, 1.0f, 1.0f });
+
+		model->AddComponent<MeshComponent>()->SetMesh(m_resourceManager.GetResource<Mesh>("viking_room"));
+	}
+
+	void initRenderer()
+	{
 		m_renderer = std::make_unique<Renderer>(*m_context, m_resourceManager, *m_scene, m_window);
 
 		// Cache a non-owning handle to the camera controller so the input layer can drive it.
@@ -105,11 +131,6 @@ class JalapenoVK
 
 			m_cameraController = camera->GetComponent<CameraControllerComponent>();
 		}
-	}
-
-	void initScene()
-	{
-		m_scene = std::make_unique<Scene>();
 	}
 
 	void mainLoop()

@@ -1,29 +1,16 @@
 #include "scene/Scene.h"
 
-#include "scene/Entity.h"
-#include "scene/TransformComponent.h"
 #include "scene/CameraComponent.h"
 #include "scene/CameraControllerComponent.h"
+#include "scene/Entity.h"
+#include "scene/TransformComponent.h"
 
 #include <algorithm>
 
 Scene::Scene()
 {
-	Init();
-}
-
-void Scene::Init()
-{
-	Entity* model = AddEntity("Model");
+	// Minimal Camera Setup
 	Entity* camera = AddEntity("Camera");
-
-	// Model entity: the viking_room mesh transform.
-	auto* modelTransform = model->AddComponent<TransformComponent>();
-	modelTransform->SetPosition({ 0.0f, 0.0f, 0.0f });
-	modelTransform->SetRotation({ 0.0f, -45.0f, 0.0f });
-	modelTransform->SetScale({ 1.0f, 1.0f, 1.0f });
-
-	// CAMERA ENTITY
 	SetActiveCamera(camera);
 
 	// Tranform component
@@ -32,7 +19,7 @@ void Scene::Init()
 	auto* cameraTransform = m_activeCamera->AddComponent<TransformComponent>();
 	cameraTransform->SetPosition({ 2.0f, 2.0f, 2.0f });
 
-	// Orient from (2,2,2) towards the origin so the initial view matches the previous hardcoded camera.
+	// Orient from (2,2,2) towards the origin.
 	// Convention: local forward = -Z, so yaw rotates around world Y and yaw=0 looks at -Z.
 	constexpr float initialYawDeg = 45.0f;
 	constexpr float initialPitchDeg = -35.0f;
