@@ -6,6 +6,7 @@
 #include "resources/Texture.h"
 #include "scene/CameraControllerComponent.h"
 #include "scene/Entity.h"
+#include "scene/Scene.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/vec3.hpp>
@@ -34,6 +35,7 @@ class JalapenoVK
 	void run()
 	{
 		initWindow();
+		initScene();
 		initVulkan();
 		mainLoop();
 		cleanup();
@@ -45,6 +47,8 @@ class JalapenoVK
 
 	std::unique_ptr<VulkanContext>  m_context;			// MUST be the first member declared / last destroyed: every other Vulkan-holding member depends on its Device.
 	std::unique_ptr<Renderer>       m_renderer;
+	std::unique_ptr<Scene>			m_scene;
+
 	ResourceManager                 m_resourceManager;
 
 	// Input state
@@ -88,13 +92,24 @@ class JalapenoVK
 			throw std::runtime_error("Failed to load required resources");
 		}
 
-		m_renderer = std::make_unique<Renderer>(*m_context, m_resourceManager, m_window);
+		m_renderer = std::make_unique<Renderer>(*m_context, m_resourceManager, *m_scene, m_window);
 
 		// Cache a non-owning handle to the camera controller so the input layer can drive it.
-		if (Entity* camera = m_renderer->GetActiveCamera())
+		if (Entity* camera = m_scene->GetActiveCamera())
 		{
+			if (auto* cameraComponent = camera->GetComponent<CameraComponent>())
+			{
+				const vk::Extent2D& extent = m_renderer->GetSwapchain().GetExtent();
+				cameraComponent->SetAspectRatio(static_cast<float>(extent.width) / static_cast<float>(extent.height));
+			}
+
 			m_cameraController = camera->GetComponent<CameraControllerComponent>();
 		}
+	}
+
+	void initScene()
+	{
+		m_scene = std::make_unique<Scene>();
 	}
 
 	void mainLoop()
@@ -113,7 +128,7 @@ class JalapenoVK
 
 			ProcessInput();
 
-			m_renderer->UpdateEntities(deltaTime);
+			m_scene->Update(deltaTime);
 			m_renderer->Render();
 		}
 

@@ -7,6 +7,7 @@
 #include "scene/CameraComponent.h"
 #include "scene/CameraControllerComponent.h"
 #include "scene/Entity.h"
+#include "scene/Scene.h"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -24,8 +25,8 @@ class GeometryPass;
  * Renderer owns the swapchain, the render pass manager, and the per-frame
  * command buffers. Each frame it acquires a swapchain image, records the
  * ordered pass sequence built by the RenderPassManager, submits the command
- * buffer, and presents the result. Scene state is currently held in a private
- * placeholder array until a proper Scene / World system exists.
+ * buffer, and presents the result. Scene state is owned externally by a
+ * Scene instance, passed in by reference.
  *
  * When the surface becomes incompatible with the swapchain (window resize),
  * the Renderer coordinates a full swapchain recreation and propagates the
@@ -43,9 +44,10 @@ public:
      *
      * @param context           Vulkan backend used for all GPU allocations.
      * @param resourceManager   Resource registry used to resolve textures, meshes, and shaders.
+     * @param scene             Main scene that contains all the entities.
      * @param window            GLFW window providing the presentation surface.
      */
-    Renderer(VulkanContext& context, ResourceManager& resourceManager, GLFWwindow* window);
+    Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window);
 
     /**
      * @brief Destructor. Owned vk::raii handles release themselves.
@@ -84,16 +86,6 @@ public:
      */
     void OnFramebufferResized() { m_framebufferResized = true; }
 
-    /**
-     * @brief Ticks every entity in the placeholder scene by the given delta.
-     *
-     * Temporary shim while entities live inside the Renderer; when a Scene / World
-     * system exists this responsibility will move there and the Renderer will only draw.
-     *
-     * @param deltaTime  Time elapsed since the previous frame, in seconds.
-     */
-    void UpdateEntities(std::chrono::duration<float> deltaTime);
-
 
     // ----------------------------------------------
     // GETTERS & SETTERS
@@ -103,13 +95,6 @@ public:
      * @brief Returns a reference to the owned swapchain.
      */
     Swapchain& GetSwapchain() { return m_swapchain; }
-
-    /**
-     * @brief Returns the entity used as the active camera, or nullptr if none is bound.
-     *
-     * Non-owning; the returned pointer stays valid for the lifetime of the Renderer.
-     */
-    Entity* GetActiveCamera() const { return m_activeCamera; }
 
 
 private:
@@ -122,11 +107,6 @@ private:
      * @brief Instantiates and registers the concrete render passes for this renderer.
      */
     void SetupRenderPasses();
-
-    /**
-     * @brief Populates the placeholder scene until a proper Scene/World system exists.
-     */
-    void SetupEntities();
 
     /**
      * @brief Allocates one primary command buffer per frame-in-flight slot.
@@ -166,6 +146,7 @@ private:
     VulkanContext&                          m_context;                          // Vulkan backend used for GPU allocations. Not owned by this class.
     GLFWwindow*                             m_window;                           // Native GLFW window providing the presentation surface. Not owned by this class.
 
+    Scene&                                  m_scene;
     ResourceManager&                        m_resourceManager;                  // Resource registry used to resolve textures, meshes, and shaders. Not owned by this class.
     RenderPassManager                       m_renderPassManager;                // Owned manager that orders and executes the pass sequence each frame.
     Swapchain                               m_swapchain;                        // Owned swapchain and its per-frame synchronization primitives.
@@ -175,9 +156,4 @@ private:
     bool                                    m_framebufferResized{ false };      // Flag to trigger swapchain recreation on the next frame.
 
     GeometryPass*                           m_geometryPass{ nullptr };          // Non-owning pointer, so Renderer can push per-frame data.
-
-    Entity*                                 m_activeCamera{ nullptr };          // Non-owning; points into m_entities.
-    
-    // Placeholder scene until Scene/World is introduced.
-    std::array<Entity, 2>                   m_entities { Entity("Model"), Entity("Camera") };
 };

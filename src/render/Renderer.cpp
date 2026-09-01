@@ -10,23 +10,15 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-Renderer::Renderer(VulkanContext& context, ResourceManager& resourceManager, GLFWwindow* window) :
+Renderer::Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window) :
     m_context(context),
     m_window(window),
+    m_scene(scene),
     m_resourceManager(resourceManager),
     m_swapchain(context, window)
 {
-    SetupEntities();
     CreateCommandBuffers();
     SetupRenderPasses();
-}
-
-void Renderer::UpdateEntities(std::chrono::duration<float> deltaTime)
-{
-    for (Entity& entity : m_entities)
-    {
-        entity.Update(deltaTime);
-    }
 }
 
 void Renderer::Render()
@@ -49,13 +41,13 @@ void Renderer::Render()
     if (m_geometryPass)
     {
         // View / projection from the active camera
-        auto* camera = m_activeCamera ? m_activeCamera->GetComponent<CameraComponent>() : nullptr;
+        auto* camera = m_scene.GetActiveCamera() ? m_scene.GetActiveCamera()->GetComponent<CameraComponent>() : nullptr;
         glm::mat4 view = camera ? camera->GetViewMatrix()       : glm::mat4(1.0f);
         glm::mat4 proj = camera ? camera->GetProjectionMatrix() : glm::mat4(1.0f);
         proj[1][1] *= -1.0f; // GLM assumes OpenGL NDC (Y up); Vulkan is Y down.
 
         // Use model transform if it exists
-        auto* transform = m_entities[0].GetComponent<TransformComponent>();
+        auto* transform = m_scene.GetEntity("Model")->GetComponent<TransformComponent>();
         glm::mat4 model = transform ? transform->GetModelMatrix() : glm::mat4(1.0f);
 
         GeometryPass::FrameData frameData
@@ -116,9 +108,9 @@ void Renderer::HandleSwapchainRecreation()
     }
 
     // Update the active camera's aspect ratio so the projection matches the new surface.
-    if (m_activeCamera)
+    if (m_scene.GetActiveCamera())
     {
-        if (auto* camera = m_activeCamera->GetComponent<CameraComponent>())
+        if (auto* camera = m_scene.GetActiveCamera()->GetComponent<CameraComponent>())
         {
             camera->SetAspectRatio(static_cast<float>(extent.width) / static_cast<float>(extent.height));
         }
@@ -136,39 +128,6 @@ void Renderer::SetupRenderPasses()
     };
 
     m_geometryPass = m_renderPassManager.AddRenderPass<GeometryPass>("GeometryPass", m_context, info);
-}
-
-void Renderer::SetupEntities()
-{
-    // Model entity: the viking_room mesh transform.
-    auto* modelTransform = m_entities[0].AddComponent<TransformComponent>();
-    modelTransform->SetPosition({ 0.0f, 0.0f, 0.0f });
-    modelTransform->SetRotation({ 0.0f, -45.0f, 0.0f });
-    modelTransform->SetScale   ({ 1.0f, 1.0f, 1.0f });
-
-    // CAMERA ENTITY
-    
-    // Tranform component
-    // Order matters: CameraComponent::Init and CameraControllerComponent::Init both read the Transform, 
-    // so the Transform (with its initial pose) must be added first.
-    auto* cameraTransform = m_entities[1].AddComponent<TransformComponent>();
-    cameraTransform->SetPosition({ 2.0f, 2.0f, 2.0f });
-
-    // Orient from (2,2,2) towards the origin so the initial view matches the previous hardcoded camera.
-    // Convention: local forward = -Z, so yaw rotates around world Y and yaw=0 looks at -Z.
-    constexpr float initialYawDeg   = 45.0f;
-    constexpr float initialPitchDeg = -35.0f;
-    cameraTransform->SetRotation({ glm::radians(initialPitchDeg), glm::radians(initialYawDeg), 0.0f });
-
-    // Camera component
-    // Match aspect to the current swapchain extent so the first frame is correct.
-    auto* cameraComponent = m_entities[1].AddComponent<CameraComponent>();
-    cameraComponent->SetAspectRatio(static_cast<float>(m_swapchain.GetExtent().width) / static_cast<float>(m_swapchain.GetExtent().height));
-
-    // Camera Controlles component
-    m_entities[1].AddComponent<CameraControllerComponent>();
-
-    m_activeCamera = &m_entities[1];
 }
 
 void Renderer::CreateCommandBuffers()
