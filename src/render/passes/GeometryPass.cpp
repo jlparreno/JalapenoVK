@@ -1,5 +1,6 @@
 #include "render/passes/GeometryPass.h"
 
+#include "core/DescriptorAllocator.h"
 #include "core/VulkanContext.h"
 #include "resources/Mesh.h"
 #include "resources/Shader.h"
@@ -313,23 +314,13 @@ void GeometryPass::CreateAttachments()
 
 void GeometryPass::CreateDescriptorPool()
 {
-    std::array<vk::DescriptorPoolSize, 2> poolSizes
+    std::vector<vk::DescriptorPoolSize> poolSizes
     {
-        {
-            {.type = vk::DescriptorType::eUniformBuffer,        .descriptorCount = k_maxFramesInFlight},
-            {.type = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = k_maxFramesInFlight}
-        }
+        {.type = vk::DescriptorType::eUniformBuffer,        .descriptorCount = k_maxFramesInFlight},
+        {.type = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = k_maxFramesInFlight}
     };
 
-    vk::DescriptorPoolCreateInfo poolInfo
-    {
-        .flags         = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-        .maxSets       = k_maxFramesInFlight,
-        .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
-        .pPoolSizes    = poolSizes.data()
-    };
-
-    m_descriptorPool = vk::raii::DescriptorPool(m_context.GetDevice(), poolInfo);
+    m_descriptorPool = DescriptorAllocator::CreatePool(m_context, k_maxFramesInFlight, poolSizes);
 }
 
 void GeometryPass::CreateUniformBuffers()
@@ -353,16 +344,7 @@ void GeometryPass::CreateUniformBuffers()
 
 void GeometryPass::CreateDescriptorSets()
 {
-    std::vector<vk::DescriptorSetLayout> layouts(k_maxFramesInFlight, *m_setLayout);
-
-    vk::DescriptorSetAllocateInfo allocInfo
-    {
-        .descriptorPool     = m_descriptorPool,
-        .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
-        .pSetLayouts        = layouts.data()
-    };
-
-    m_descriptorSets = m_context.GetDevice().allocateDescriptorSets(allocInfo);
+    m_descriptorSets = DescriptorAllocator::AllocateSets(m_context, m_descriptorPool, *m_setLayout, k_maxFramesInFlight);
 
     for (size_t i = 0; i < k_maxFramesInFlight; i++)
     {
