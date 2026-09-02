@@ -100,37 +100,29 @@ void VulkanContext::TransitionImageLayout(const vk::raii::Image& image, vk::Imag
 	const auto commandBuffer = BeginSingleTimeCommands();
 
 	// !! --> A barrier tells Vulkan: this image was being used like this, now it will be used like that
-	vk::ImageMemoryBarrier barrier
-	{ 
-		.oldLayout = oldLayout,
-		.newLayout = newLayout,
-		.srcQueueFamilyIndex = vk::QueueFamilyIgnored,
-		.dstQueueFamilyIndex = vk::QueueFamilyIgnored,
-		.image = image,
-		.subresourceRange = {.aspectMask = vk::ImageAspectFlagBits::eColor, .levelCount = mipLevels, .layerCount = 1} 
-	};
-
-	// This stages define which work should finish and which work should start
-	vk::PipelineStageFlags sourceStage;
-	vk::PipelineStageFlags destinationStage;
+	vk::ImageMemoryBarrier2 barrier;
+	barrier.setOldLayout(oldLayout)
+	       .setNewLayout(newLayout)
+	       .setSrcQueueFamilyIndex(vk::QueueFamilyIgnored)
+	       .setDstQueueFamilyIndex(vk::QueueFamilyIgnored)
+	       .setImage(image)
+	       .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, mipLevels, 0, 1 });
 
 	// Image just created, we want it ready to receive a copy
 	if (oldLayout == vk::ImageLayout::eUndefined && newLayout == vk::ImageLayout::eTransferDstOptimal)
 	{
-		barrier.srcAccessMask = {};
-		barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
-
-		sourceStage = vk::PipelineStageFlagBits::eTopOfPipe;
-		destinationStage = vk::PipelineStageFlagBits::eTransfer;
+		barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTopOfPipe)
+		       .setSrcAccessMask(vk::AccessFlagBits2::eNone)
+		       .setDstStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		       .setDstAccessMask(vk::AccessFlagBits2::eTransferWrite);
 	}
 	// We already copied the pixels, now this image should be used in shaders. Wait writes to end.
 	else if (oldLayout == vk::ImageLayout::eTransferDstOptimal && newLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
 	{
-		barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-		barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-
-		sourceStage = vk::PipelineStageFlagBits::eTransfer;
-		destinationStage = vk::PipelineStageFlagBits::eFragmentShader;
+		barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		       .setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite)
+		       .setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
+		       .setDstAccessMask(vk::AccessFlagBits2::eShaderRead);
 	}
 	else
 	{
@@ -138,7 +130,9 @@ void VulkanContext::TransitionImageLayout(const vk::raii::Image& image, vk::Imag
 	}
 
 	// Record the transition
-	commandBuffer->pipelineBarrier(sourceStage, destinationStage, {}, {}, nullptr, barrier);
+	vk::DependencyInfo depInfo;
+	depInfo.setImageMemoryBarriers(barrier);
+	commandBuffer->pipelineBarrier2(depInfo);
 
 	EndSingleTimeCommands(*commandBuffer);
 }
@@ -507,8 +501,12 @@ void VulkanContext::EndSingleTimeCommands(const vk::raii::CommandBuffer& command
 	commandBuffer.end();
 
 	// Submit command buffer to the queue, here we are telling the GPU to execute this copy command
-	vk::SubmitInfo submitInfo{ .commandBufferCount = 1, .pCommandBuffers = &*commandBuffer };
-	m_graphicsQueue.submit(submitInfo, nullptr);
+	vk::CommandBufferSubmitInfo commandBufferInfo{ .commandBuffer = *commandBuffer };
+
+	vk::SubmitInfo2 submitInfo;
+	submitInfo.setCommandBufferInfos(commandBufferInfo);
+
+	m_graphicsQueue.submit2(submitInfo, nullptr);
 
 	// We wait until this queue is empty, so GPU has finished
 	m_graphicsQueue.waitIdle();

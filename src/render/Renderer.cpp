@@ -202,16 +202,21 @@ void Renderer::SubmitCommandBuffer(vk::raii::CommandBuffer& commandBuffer, uint3
     const vk::Semaphore renderFinished = m_swapchain.GetRenderFinishedSemaphore(imageIndex);
     const vk::Fence     inFlightFence  = m_swapchain.GetInFlightFence();
 
-    const vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    vk::SemaphoreSubmitInfo waitSemaphoreInfo;
+    waitSemaphoreInfo.setSemaphore(imageAvailable)
+                     .setStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput);
 
-    vk::SubmitInfo submitInfo;
-    submitInfo.setWaitSemaphoreCount(1)
-              .setWaitSemaphores(imageAvailable)
-              .setWaitDstStageMask(waitStage)
-              .setCommandBufferCount(1)
-              .setCommandBuffers(*commandBuffer)
-              .setSignalSemaphoreCount(1)
-              .setSignalSemaphores(renderFinished);
+    vk::SemaphoreSubmitInfo signalSemaphoreInfo;
+    signalSemaphoreInfo.setSemaphore(renderFinished)
+                       .setStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput);
 
-    m_context.GetGraphicsQueue().submit(submitInfo, inFlightFence);
+    vk::CommandBufferSubmitInfo commandBufferInfo;
+    commandBufferInfo.setCommandBuffer(*commandBuffer);
+
+    vk::SubmitInfo2 submitInfo;
+    submitInfo.setWaitSemaphoreInfos(waitSemaphoreInfo)
+              .setCommandBufferInfos(commandBufferInfo)
+              .setSignalSemaphoreInfos(signalSemaphoreInfo);
+
+    m_context.GetGraphicsQueue().submit2(submitInfo, inFlightFence);
 }
