@@ -12,6 +12,7 @@
 #include "scene/MeshComponent.h"
 #include "scene/Scene.h"
 #include "scene/TransformComponent.h"
+#include "scene/LightComponent.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/vec3.hpp>
@@ -93,7 +94,17 @@ class JalapenoVK
 		// Create the scene with the default camera
 		m_scene = std::make_unique<Scene>();
 
-		// Add entities to the scene from here...
+		// Directional Light
+		Entity* light = m_scene->AddEntity("Light");
+
+		auto* lightTransform = light->AddComponent<TransformComponent>();
+		lightTransform->SetRotation({ glm::radians(-50.0f), glm::radians(30.0f), 0.0f });
+
+		light->AddComponent<LightComponent>();
+
+		m_scene->SetActiveLight(light);
+
+		// Models...
 		Entity* model = m_scene->AddEntity("Model");
 
 		auto* modelTransform = model->AddComponent<TransformComponent>();

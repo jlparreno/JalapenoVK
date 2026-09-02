@@ -87,11 +87,23 @@ public:
 	Entity* GetActiveCamera() const { return m_activeCamera; };
 
 	/**
+	 * @brief Returns the entity used as the active light, or nullptr if none is bound.
+	 */
+	Entity* GetActiveLight() const { return m_activeLight; };
+
+	/**
 	 * @brief Set the entity used as the active camera.
 	 *
 	 * @param camera The entity to use as the active camera.
 	 */
 	void SetActiveCamera(Entity* camera) { m_activeCamera = camera; };
+
+	/**
+	 * @brief Set the entity used as the active light.
+	 *
+	 * @param light The entity to use as the active light.
+	 */
+	void SetActiveLight(Entity* light) { m_activeLight = light; };
 
 private:
 
@@ -102,5 +114,6 @@ private:
 	std::vector<std::unique_ptr<Entity>>	m_entities;					// Owned entity instances. unique_ptr keeps addresses stable as the vector grows.
 
 	Entity*									m_activeCamera{ nullptr };	// Entity currently used as the active camera. Not owned by this class.
+	Entity*									m_activeLight{ nullptr };	// Entity currently used as the active light. Not owned by this class.
 };
 
