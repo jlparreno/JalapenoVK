@@ -61,13 +61,14 @@ The compiled binary and shaders are placed under `build/JalapenoVK/`.
 JalapenoVK/
 ├── src/
 │   ├── core/          # Vulkan backend (context, device, includes)
+│   ├── io/            # Window (GLFW window/icon/title) + InputManager (keyboard/mouse polling)
 │   ├── render/        # Renderer, swapchain, per-frame types
 │   │   └── passes/    # RenderPass base + manager + concrete passes
 │   ├── resources/     # Resource system (meshes, textures, shaders)
 │   ├── scene/         # Entity + components (ECS-style composition)
 │   └── main.cpp
 ├── shaders/           # Slang shader sources (compiled to SPIR-V at build time)
-├── assets/            # Models and textures (not versioned)
+├── assets/            # jalapeno_logo.png + viking_room mesh/texture are versioned
 └── CMakeLists.txt
 ```
 

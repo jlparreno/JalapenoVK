@@ -4,5 +4,9 @@ imgui.ini
 # Build directory
 build/
 
-# For now, ignore assets
-assets/
+# For now, ignore assets except the ones the current build actually loads
+# (bistro/ and DamagedHelmet/ are large PBR test assets not wired up yet)
+assets/*
+!assets/jalapeno_logo.png
+!assets/viking_room.glb
+!assets/viking_room.ktx2
