@@ -1,9 +1,12 @@
 #include "core/VulkanContext.h"
+#include "io/InputManager.h"
+#include "io/Window.h"
 #include "render/Renderer.h"
 #include "resources/Mesh.h"
 #include "resources/ResourceManager.h"
 #include "resources/Shader.h"
 #include "resources/Texture.h"
+#include "scene/CameraComponent.h"
 #include "scene/CameraControllerComponent.h"
 #include "scene/Entity.h"
 #include "scene/MeshComponent.h"
@@ -13,86 +16,71 @@
 #include <GLFW/glfw3.h>
 #include <glm/vec3.hpp>
 
-// stb_image is header-only: the implementation must be emitted in exactly one TU.
-// Move this define to Texture.cpp when PNG loading lands there.
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
 #include <chrono>
 #include <cstdlib>
-#include <iomanip>
 #include <iostream>
 #include <memory>
-#include <sstream>
 #include <stdexcept>
 
 const uint32_t WIDTH  = 1920;
 const uint32_t HEIGHT = 1080;
-const char*    TITLE  = "JalapenoVK";
+const char*	   TITLE  = "JalapenoVK";
 
 class JalapenoVK
 {
   public:
 
-	void run()
+	void Run()
 	{
-		initWindow();
-		initVulkan();
-		initResources();
-		initScene();
-		initRenderer();
-		mainLoop();
-		cleanup();
+		InitWindow();
+		InitInput();
+		InitVulkan();
+		InitResources();
+		InitScene();
+		InitRenderer();
+		MainLoop();
+		Cleanup();
 	}
 
   private:
 
-	GLFWwindow*                     m_window{ nullptr };
+	std::unique_ptr<Window>				m_window;			// Created first; every subsystem below needs its GLFWwindow handle.
 
-	std::unique_ptr<VulkanContext>  m_context;			// MUST be the first member declared / last destroyed: every other Vulkan-holding member depends on its Device.
-	std::unique_ptr<Renderer>       m_renderer;
-	std::unique_ptr<Scene>			m_scene;
+	std::unique_ptr<VulkanContext>		m_context;			// MUST be the first member declared / last destroyed: every other Vulkan-holding member depends on its Device.
+	std::unique_ptr<Renderer>			m_renderer;			// Holds the swapchain + per-pass GPU state; must be destroyed before m_context (see Cleanup()).
+	std::unique_ptr<Scene>				m_scene;			// Entities + active camera; content beyond the default camera is built externally in InitScene().
+	std::unique_ptr<InputManager>		m_inputManager;		// Drives the active camera controller; wired up in InitInput() / InitRenderer().
+	std::unique_ptr<ResourceManager>	m_resourceManager;	// Owns loaded textures/meshes/shaders; must be unloaded before m_context is destroyed (see Cleanup()).
 
-	ResourceManager                 m_resourceManager;
-
-	// Input state
-	CameraControllerComponent*      m_cameraController{ nullptr };  // Non-owning; resolved after the renderer creates the camera entity.
-	double                          m_lastCursorX{ 0.0 };
-	double                          m_lastCursorY{ 0.0 };
-	bool                            m_rotating{ false };            // True while Alt + mouse button is held (Maya-style camera rotation).
-
-	// Frame timing display
-	float                           m_titleTimeCounter{ 0.0f };     // Accumulates seconds between window-title refreshes.
-
-	void initWindow()
+	void InitWindow()
 	{
-		glfwInit();
+		m_window = std::make_unique<Window>(TITLE, WIDTH, HEIGHT);
 
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-		m_window = glfwCreateWindow(WIDTH, HEIGHT, TITLE, nullptr, nullptr);
-
-		SetWindowIcon();
-		SetFrameTimesTitle(0, 0.0f);
-
-		// Route window events back into this instance via static trampolines.
-		glfwSetWindowUserPointer(m_window, this);
-		glfwSetFramebufferSizeCallback(m_window, framebufferResizeCallback);
-		glfwSetCursorPosCallback(m_window, cursorPosCallback);
+		glfwSetWindowUserPointer(m_window->GetHandle(), this);
+		glfwSetFramebufferSizeCallback(m_window->GetHandle(), FramebufferResizeCallback);
 	}
 
-	void initVulkan()
+	void InitInput()
 	{
-		m_context = std::make_unique<VulkanContext>(m_window);
+		m_inputManager = std::make_unique<InputManager>(m_window->GetHandle());
+
+		glfwSetCursorPosCallback(m_window->GetHandle(), CursorPosCallback);
 	}
 
-	void initResources()
+	void InitVulkan()
 	{
+		m_context = std::make_unique<VulkanContext>(m_window->GetHandle());
+	}
+
+	void InitResources()
+	{
+		m_resourceManager = std::make_unique<ResourceManager>();
+
 		// Load the resources the current scene needs. Ownership stays in the ResourceManager;
 		// the returned handles are used only to validate that the load succeeded.
-		auto texture = m_resourceManager.LoadResource<Texture>(*m_context, "viking_room");
-		auto mesh = m_resourceManager.LoadResource<Mesh>(*m_context, "viking_room");
-		auto shader = m_resourceManager.LoadResource<Shader>(*m_context, "shader.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
+		auto texture = m_resourceManager->LoadResource<Texture>(*m_context, "viking_room");
+		auto mesh = m_resourceManager->LoadResource<Mesh>(*m_context, "viking_room");
+		auto shader = m_resourceManager->LoadResource<Shader>(*m_context, "shader.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
 
 		if (!texture || !mesh || !shader)
 		{
@@ -100,7 +88,7 @@ class JalapenoVK
 		}
 	}
 
-	void initScene()
+	void InitScene()
 	{
 		// Create the scene with the default camera
 		m_scene = std::make_unique<Scene>();
@@ -113,12 +101,12 @@ class JalapenoVK
 		modelTransform->SetRotation({ 0.0f, -45.0f, 0.0f });
 		modelTransform->SetScale({ 1.0f, 1.0f, 1.0f });
 
-		model->AddComponent<MeshComponent>()->SetMesh(m_resourceManager.GetResource<Mesh>("viking_room"));
+		model->AddComponent<MeshComponent>()->SetMesh(m_resourceManager->GetResource<Mesh>("viking_room"));
 	}
 
-	void initRenderer()
+	void InitRenderer()
 	{
-		m_renderer = std::make_unique<Renderer>(*m_context, m_resourceManager, *m_scene, m_window);
+		m_renderer = std::make_unique<Renderer>(*m_context, *m_resourceManager, *m_scene, m_window->GetHandle());
 
 		// Cache a non-owning handle to the camera controller so the input layer can drive it.
 		if (Entity* camera = m_scene->GetActiveCamera())
@@ -129,27 +117,28 @@ class JalapenoVK
 				cameraComponent->SetAspectRatio(static_cast<float>(extent.width) / static_cast<float>(extent.height));
 			}
 
-			m_cameraController = camera->GetComponent<CameraControllerComponent>();
+			m_inputManager->SetCameraController(camera->GetComponent<CameraControllerComponent>());
 		}
 	}
 
-	void mainLoop()
+	void MainLoop()
 	{
 		auto lastFrameTime = std::chrono::steady_clock::now();
 
-		while (!glfwWindowShouldClose(m_window))
+		while (!m_window->ShouldClose())
 		{
-			glfwPollEvents();
+			m_window->PollEvents();
 
 			const auto now = std::chrono::steady_clock::now();
 			const auto deltaTime = std::chrono::duration<float>(now - lastFrameTime);
 			lastFrameTime = now;
 
-			DisplayFrameTimes(deltaTime.count());
+			m_window->DisplayFrameTimes(deltaTime.count());
 
-			ProcessInput();
+			m_inputManager->ProcessInput();
 
 			m_scene->Update(deltaTime);
+
 			m_renderer->Render();
 		}
 
@@ -157,122 +146,33 @@ class JalapenoVK
 		m_renderer->WaitIdle();
 	}
 
-	void cleanup()
+	void Cleanup()
 	{
 		// Release Vulkan-side objects before shutting down the platform layer.
 		// Order matters: the renderer holds the swapchain + per-pass state, resources
 		// hold GPU buffers/images, and all of them require the VulkanContext (device)
 		// to be alive during their destructors.
-		m_resourceManager.UnloadAllResources();
+		m_resourceManager->UnloadAllResources();
 		m_renderer.reset();
 		m_context.reset();
-
-		glfwDestroyWindow(m_window);
-		glfwTerminate();
 	}
 
-	void ProcessInput()
+	static void CursorPosCallback(GLFWwindow* window, double xpos, double ypos)
 	{
-		if (!m_cameraController)
+		auto* app = static_cast<JalapenoVK*>(glfwGetWindowUserPointer(window));
+		if (app && app->m_inputManager)
 		{
-			return;
-		}
-
-		// Keyboard: WASD builds a {right, up, forward} axes vector; Y stays unmapped for now.
-		glm::vec3 axes{ 0.0f };
-		if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS) axes.x += 1.0f;
-		if (glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS) axes.x -= 1.0f;
-		if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS) axes.z += 1.0f;
-		if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS) axes.z -= 1.0f;
-		m_cameraController->SetMoveInput(axes);
-
-		// Rotation: Maya-style — Alt + left mouse button captures the cursor and streams mouse deltas into the controller.
-		const bool altPressed = glfwGetKey(m_window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS;
-		const bool mousePressed = glfwGetMouseButton(m_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-		const bool shouldRotate = altPressed && mousePressed;
-
-		if (shouldRotate && !m_rotating)
-		{
-			// Enter rotation mode: hide the cursor and snapshot the current position so the first
-			// delta computed by the callback is (0, 0) instead of jumping from a stale value.
-			glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-			glfwGetCursorPos(m_window, &m_lastCursorX, &m_lastCursorY);
-			m_rotating = true;
-		}
-		else if (!shouldRotate && m_rotating)
-		{
-			glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-			m_rotating = false;
+			app->m_inputManager->OnCursorMoved(xpos, ypos);
 		}
 	}
 
-	void SetWindowIcon()
-	{
-		int width = 0;
-		int height = 0;
-		int channels = 0;
-		unsigned char* pixels = stbi_load("assets/jalapeno_logo.png", &width, &height, &channels, STBI_rgb_alpha);
-		if (!pixels)
-		{
-			std::cerr << "Failed to load window icon: assets/jalapeno_logo.png" << std::endl;
-			return;
-		}
-
-		GLFWimage icon{};
-		icon.width = width;
-		icon.height = height;
-		icon.pixels = pixels;
-		glfwSetWindowIcon(m_window, 1, &icon);
-
-		stbi_image_free(pixels);
-	}
-
-	void DisplayFrameTimes(float deltaTime)
-	{
-		m_titleTimeCounter += deltaTime;
-
-		if (m_titleTimeCounter >= 1.0f)
-		{
-			m_titleTimeCounter = 0.0f;
-
-			const int   fps    = static_cast<int>(1.0f / deltaTime);
-			const float timeMs = deltaTime * 1000.0f;
-
-			SetFrameTimesTitle(fps, timeMs);
-		}
-	}
-
-	void SetFrameTimesTitle(int fps, float timeMs)
-	{
-		std::ostringstream oss;
-		oss << std::fixed << std::setprecision(2) << TITLE << "    |    FPS: " << fps << "    |    Time(ms): " << timeMs;
-
-		glfwSetWindowTitle(m_window, oss.str().c_str());
-	}
-
-	static void framebufferResizeCallback(GLFWwindow* window, [[maybe_unused]] int width, [[maybe_unused]] int height)
+	static void FramebufferResizeCallback(GLFWwindow* window, [[maybe_unused]] int width, [[maybe_unused]] int height)
 	{
 		auto* app = static_cast<JalapenoVK*>(glfwGetWindowUserPointer(window));
 		if (app && app->m_renderer)
 		{
 			app->m_renderer->OnFramebufferResized();
 		}
-	}
-
-	static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
-	{
-		auto* app = static_cast<JalapenoVK*>(glfwGetWindowUserPointer(window));
-		if (!app || !app->m_rotating || !app->m_cameraController)
-		{
-			return;
-		}
-
-		const double dx = xpos - app->m_lastCursorX;
-		const double dy = ypos - app->m_lastCursorY;
-		app->m_lastCursorX = xpos;
-		app->m_lastCursorY = ypos;
-
-		app->m_cameraController->SetRotateInput(static_cast<float>(dx), static_cast<float>(dy));
 	}
 };
 
@@ -281,7 +181,7 @@ int main()
 	try
 	{
 		JalapenoVK app;
-		app.run();
+		app.Run();
 	}
 	catch (const std::exception &e)
 	{
