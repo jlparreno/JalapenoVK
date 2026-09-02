@@ -28,6 +28,8 @@ struct Vertex
 	glm::vec3 position;
 	glm::vec3 color;
 	glm::vec2 texCoord;
+	glm::vec3 normal;
+	glm::vec4 tangent;
 
 	/**
 	 * @brief Returns the binding description for this vertex layout.
@@ -46,11 +48,13 @@ struct Vertex
 	 * Maps each member to its shader location, format, and byte offset
 	 * within the Vertex struct, so the pipeline can unpack each attribute.
 	 */
-	static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions()
+	static std::array<vk::VertexInputAttributeDescription, 5> getAttributeDescriptions()
 	{
-		return { {{.location = 0, .binding = 0, .format = vk::Format::eR32G32B32Sfloat,	.offset = offsetof(Vertex, position)},
-				  {.location = 1, .binding = 0, .format = vk::Format::eR32G32B32Sfloat,	.offset = offsetof(Vertex, color)},
-				  {.location = 2, .binding = 0, .format = vk::Format::eR32G32Sfloat,	.offset = offsetof(Vertex, texCoord)}} };
+		return { {{.location = 0, .binding = 0, .format = vk::Format::eR32G32B32Sfloat,		.offset = offsetof(Vertex, position)},
+				  {.location = 1, .binding = 0, .format = vk::Format::eR32G32B32Sfloat,		.offset = offsetof(Vertex, color)},
+				  {.location = 2, .binding = 0, .format = vk::Format::eR32G32Sfloat,		.offset = offsetof(Vertex, texCoord)},
+				  {.location = 3, .binding = 0, .format = vk::Format::eR32G32B32Sfloat,		.offset = offsetof(Vertex, normal)},
+				  {.location = 4, .binding = 0, .format = vk::Format::eR32G32B32A32Sfloat,	.offset = offsetof(Vertex, tangent)}} };
 	}
 
 	/**

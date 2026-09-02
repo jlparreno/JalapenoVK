@@ -91,11 +91,22 @@ bool Mesh::LoadMeshData(const std::string& filePath, std::vector<Vertex>& vertic
 			const tinygltf::BufferView& posBufferView = model.bufferViews[posAccessor.bufferView];
 			const tinygltf::Buffer& posBuffer = model.buffers[posBufferView.buffer];
 
+			// Get normals
+			const tinygltf::Accessor& normalAccessor = model.accessors[primitive.attributes.at("NORMAL")];;
+			const tinygltf::BufferView& normalBufferView = model.bufferViews[normalAccessor.bufferView];
+			const tinygltf::Buffer& normalBuffer = model.buffers[normalBufferView.buffer];
+
 			// Get texture coordinates if available
-			bool                        hasTexCoords = primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end();
+			bool hasTexCoords = primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end();
 			const tinygltf::Accessor* texCoordAccessor = nullptr;
 			const tinygltf::BufferView* texCoordBufferView = nullptr;
 			const tinygltf::Buffer* texCoordBuffer = nullptr;
+
+			// Get tangents if available
+			bool hasTangents = primitive.attributes.find("TANGENT") != primitive.attributes.end();
+			const tinygltf::Accessor* tangentAccessor = nullptr;
+			const tinygltf::BufferView* tangentBufferView = nullptr;
+			const tinygltf::Buffer* tangentBuffer = nullptr;
 
 			if (hasTexCoords)
 			{
@@ -104,17 +115,26 @@ bool Mesh::LoadMeshData(const std::string& filePath, std::vector<Vertex>& vertic
 				texCoordBuffer = &model.buffers[texCoordBufferView->buffer];
 			}
 
+			if (hasTangents)
+			{
+				tangentAccessor = &model.accessors[primitive.attributes.at("TANGENT")];
+				tangentBufferView = &model.bufferViews[tangentAccessor->bufferView];
+				tangentBuffer = &model.buffers[tangentBufferView->buffer];
+			}
+
 			uint32_t baseVertex = static_cast<uint32_t>(vertices.size());
 
 			for (size_t i = 0; i < posAccessor.count; i++)
 			{
 				Vertex vertex{};
 
+				// POSITION
 				const float* pos = reinterpret_cast<const float*>(&posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset + i * 12]);
 				// glTF is Y-up. We keep the model in its native Y-up world space and rely on the
 				// projection matrix (proj[1][1] *= -1 in the renderer) to handle Vulkan's Y-down NDC.
 				vertex.position = { pos[0], pos[1], pos[2] };
 
+				// TEXCOORD
 				if (hasTexCoords)
 				{
 					const float* texCoord = reinterpret_cast<const float*>(&texCoordBuffer->data[texCoordBufferView->byteOffset + texCoordAccessor->byteOffset + i * 8]);
@@ -125,7 +145,26 @@ bool Mesh::LoadMeshData(const std::string& filePath, std::vector<Vertex>& vertic
 					vertex.texCoord = { 0.0f, 0.0f };
 				}
 
+				// COLOR
 				vertex.color = { 1.0f, 1.0f, 1.0f };
+
+				// NORMAL
+				const float* normal = reinterpret_cast<const float*>(&normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset + i * 12]);
+				vertex.normal = { normal[0], normal[1], normal[2] };
+
+				// TANGENT
+				if (hasTangents)
+				{
+					const float* tangent = reinterpret_cast<const float*>(&tangentBuffer->data[tangentBufferView->byteOffset + tangentAccessor->byteOffset + i * 16]);
+					vertex.tangent = { tangent[0], tangent[1], tangent[2], tangent[3] };
+				}
+				else
+				{
+					// No TANGENT in glTF: compute an arbitrary-but-valid tangent perpendicular to the normal, 
+					const glm::vec3 helper = (glm::abs(vertex.normal.z) < 0.999f) ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+					const glm::vec3 t = glm::normalize(glm::cross(helper, vertex.normal));
+					vertex.tangent = glm::vec4(t, 1.0f);
+				}
 
 				vertices.push_back(vertex);
 			}
