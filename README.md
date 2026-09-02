@@ -2,7 +2,7 @@
 
 A personal Vulkan rendering engine written in C++20. Built as a learning project to explore modern Vulkan 1.4.
 
-> **Status: work in progress.** Currently renders a single textured glTF model (viking_room) with MSAA. Internals are being iterated on, expect the architecture to keep evolving.
+> **Status: work in progress.** Renders a glTF model (viking_room) with MSAA and a free-fly camera. The Scene supports composing multiple entities via components (transform, mesh, camera, light); a Material/PBR system is under active development — base classes have landed but aren't wired into rendering yet. Internals are being iterated on, expect the architecture to keep evolving.
 
 ## Tech Stack
 
@@ -13,7 +13,7 @@ A personal Vulkan rendering engine written in C++20. Built as a learning project
 | **Windowing** | GLFW |
 | **Math** | GLM |
 | **Model loading** | tinygltf (glTF 2.0) |
-| **Texture loading** | libktx (KTX2) |
+| **Texture loading** | libktx (KTX2) + stb_image (JPG/PNG) |
 | **Build system** | CMake 3.29 + vcpkg |
 | **Compiler / Platform** | MSVC C++20 on Windows |
 
@@ -21,9 +21,10 @@ A personal Vulkan rendering engine written in C++20. Built as a learning project
 
 - **Pass-based Dynamic Rendering**
 - **Entity-Component Composition**
+- **Free-fly Camera** (WASD + Alt+mouse look)
 - **Typed Resource Manager**
 - **glTF 2.0 Mesh Loading**
-- **KTX2 Textures**
+- **KTX2 and JPG/PNG Textures**
 - **MSAA**
 - **Framebuffer Resize Handling**
 
@@ -34,7 +35,9 @@ A personal Vulkan rendering engine written in C++20. Built as a learning project
 - **`Swapchain`** — image views, sync objects, and full recreation on resize.
 - **`RenderPass` + `RenderPassManager`** — abstraction for ordering render passes without going full render-graph yet.
 - **`GeometryPass`** — self-contained pass that owns everything specific to its rendering.
+- **`DescriptorAllocator`** — shared helper for descriptor pool/set creation, used by render passes and materials.
 - **`Renderer`** — thin coordinator: builds `FrameData` each frame, drives the acquire/present cycle, orchestrates command buffers.
+- **`Scene`** — owns entities (`Entity` + `Component` composition: transform, mesh, camera, camera controller, light) and tracks the active camera and light.
 - **`ResourceManager`** — central registry for loadable engine resources (`Texture`, `Mesh`, `Shader`).
 
 ## Building
@@ -62,6 +65,7 @@ JalapenoVK/
 ├── src/
 │   ├── core/          # Vulkan backend (context, device, includes)
 │   ├── io/            # Window (GLFW window/icon/title) + InputManager (keyboard/mouse polling)
+│   ├── materials/     # Material class hierarchy (Material base + PBRMaterial)
 │   ├── render/        # Renderer, swapchain, per-frame types
 │   │   └── passes/    # RenderPass base + manager + concrete passes
 │   ├── resources/     # Resource system (meshes, textures, shaders)
