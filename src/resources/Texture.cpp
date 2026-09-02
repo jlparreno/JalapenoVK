@@ -1,16 +1,59 @@
 #include "resources/Texture.h"
-
 #include "core/VulkanContext.h"
+
+// stb_image is header-only: the implementation must be emitted in exactly one TU.
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
+#include <algorithm>
+#include <array>
+#include <filesystem>
+
+Texture::Texture(VulkanContext& context, const std::string& id, TextureColorSpace colorSpace) : 
+    Resource(id), 
+    m_context(context),
+    m_colorSpace(colorSpace)
+{
+}
+
+Texture::Texture(VulkanContext& context, const std::string& id, const glm::vec4& solidColor, TextureColorSpace colorSpace) :
+    Resource(id),
+    m_context(context),
+    m_colorSpace(colorSpace),
+    m_isProcedural(true),
+    m_solidColor(solidColor)
+{
+}
 
 bool Texture::Load()
 {
-    // Construct file path using resource ID and expected format
-    std::string filePath = "assets/" + GetId() + ".ktx2";
+    // Procedural placeholder: no file to resolve, build the 1x1 image directly.
+    if (m_isProcedural)
+    {
+        LoadSolidColor();
+        return Resource::Load();
+    }
 
-    // Load raw image data from disk with format detection
-    LoadImageData(filePath);
+    // Construct file path using resource ID and expected format. First, try KTX2
+    const std::string ktxPath = "assets/" + GetId() + ".ktx2";
+    if (std::filesystem::exists(ktxPath))
+    {
+        LoadImageDataKTX(ktxPath);
+        return Resource::Load();// Mark resource as successfully loaded
+    }
 
-    return Resource::Load();    // Mark resource as successfully loaded
+    // Then, try jpg or png
+    for (const char* ext : { ".jpg", ".png" })
+    {
+        const std::string path = "assets/" + GetId() + ext;
+        if (std::filesystem::exists(path))
+        {
+            LoadImageDataSTB(path);
+            return Resource::Load();// Mark resource as successfully loaded
+        }
+    }
+
+    throw std::runtime_error("Texture not found for id: " + GetId());
 }
 
 void Texture::Unload()
@@ -29,7 +72,7 @@ void Texture::Unload()
     }
 }
 
-void Texture::LoadImageData(const std::string& filePath)
+void Texture::LoadImageDataKTX(const std::string& filePath)
 {
     // Load KTX2 texture
     ktxTexture* kTexture;
@@ -75,17 +118,106 @@ void Texture::LoadImageData(const std::string& filePath)
         m_format = vk::Format::eR8G8B8A8Unorm;
     }
 
-    // GPU image
-    CreateVulkanImage(stagingBuffer);
-
-    // Create texture image view
-    CreateTextureImageView();
-
-    // Create texture sampler
-    CreateTextureSampler();
+    CreateGPUResources(stagingBuffer);
 
     // Cleanup KTX resources
     ktxTexture_Destroy(kTexture);
+}
+
+void Texture::LoadImageDataSTB(const std::string& filePath)
+{
+    // Load STB texture
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    unsigned char* pixels = stbi_load(filePath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+    if (!pixels)
+    {
+        throw std::runtime_error("Failed to load STB texture image: " + filePath);
+    }
+
+    // Get texture dimensions and data. STBI_rgb_alpha forces 4 output channels regardless of the
+    // source file's own channel count, which is what `channels` reports here - use 4, not `channels`.
+    m_width = width;
+    m_height = height;
+    size_t imageSize = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+
+    // Create staging buffer and memory
+    auto [stagingBuffer, stagingBufferMemory] = m_context.CreateBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    // Copy image data to staging buffer
+    void* data = stagingBufferMemory.mapMemory(0, imageSize);
+    memcpy(data, pixels, imageSize);
+    stagingBufferMemory.unmapMemory();
+
+    // Get mipmap levels. For now, we will use only one for JPG or PNG
+    m_mipLevels = 1;
+
+    // Select format, sRGB by default
+    switch (m_colorSpace)
+    {
+        case TextureColorSpace::sRGB:
+            m_format = vk::Format::eR8G8B8A8Srgb;
+            break;
+        case TextureColorSpace::Linear:
+            m_format = vk::Format::eR8G8B8A8Unorm;
+            break;
+        default:
+            m_format = vk::Format::eR8G8B8A8Srgb;
+            break;
+    }
+
+    CreateGPUResources(stagingBuffer);
+
+    // Cleanup STB resources
+    stbi_image_free(pixels);
+}
+
+void Texture::LoadSolidColor()
+{
+    m_width     = 1;
+    m_height    = 1;
+    m_mipLevels = 1;
+
+    // Select format, sRGB by default
+    switch (m_colorSpace)
+    {
+        case TextureColorSpace::sRGB:
+            m_format = vk::Format::eR8G8B8A8Srgb;
+            break;
+        case TextureColorSpace::Linear:
+            m_format = vk::Format::eR8G8B8A8Unorm;
+            break;
+        default:
+            m_format = vk::Format::eR8G8B8A8Srgb;
+            break;
+    }
+
+    // Create pixel color data
+    const std::array<uint8_t, 4> pixel
+    {
+        static_cast<uint8_t>(std::clamp(m_solidColor.r, 0.0f, 1.0f) * 255.0f),
+        static_cast<uint8_t>(std::clamp(m_solidColor.g, 0.0f, 1.0f) * 255.0f),
+        static_cast<uint8_t>(std::clamp(m_solidColor.b, 0.0f, 1.0f) * 255.0f),
+        static_cast<uint8_t>(std::clamp(m_solidColor.a, 0.0f, 1.0f) * 255.0f)
+    };
+
+    // Create staging buffer and memory
+    auto [stagingBuffer, stagingBufferMemory] = m_context.CreateBuffer(pixel.size(), vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    // Copy the single pixel into the staging buffer
+    void* data = stagingBufferMemory.mapMemory(0, pixel.size());
+    memcpy(data, pixel.data(), pixel.size());
+    stagingBufferMemory.unmapMemory();
+
+    CreateGPUResources(stagingBuffer);
+}
+
+void Texture::CreateGPUResources(const vk::raii::Buffer& stagingBuffer)
+{
+    CreateVulkanImage(stagingBuffer);
+    CreateTextureImageView();
+    CreateTextureSampler();
 }
 
 void Texture::CreateVulkanImage(const vk::raii::Buffer& stagingBuffer)

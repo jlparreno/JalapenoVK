@@ -1,10 +1,6 @@
 #include "io/Window.h"
 
-// stb_image is header-only: the implementation must be emitted in exactly one TU.
-// Move this define to Texture.cpp when PNG loading lands there.
-#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
-
 #include <iomanip>
 #include <iostream>
 #include <sstream>

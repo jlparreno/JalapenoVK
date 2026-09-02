@@ -3,17 +3,19 @@
 #include "core/VulkanIncludes.h"
 #include "resources/Resource.h"
 
+#include <glm/vec4.hpp>
 #include <ktx.h>
 
 // Forward declarations
 class VulkanContext;
 
 /**
- * @brief GPU texture resource backed by a KTX file.
+ * @brief GPU texture resource.
  *
- * Manages the full lifecycle of a Vulkan texture: loading pixel data from disk,
- * uploading it to GPU memory via a staging buffer, and exposing the resulting
- * image, image view, and sampler for use in descriptor sets.
+ * Manages the full lifecycle of a Vulkan texture: loading pixel data (from a
+ * KTX2 file, a JPG/PNG via stb_image, or a procedural 1x1 solid color), uploading
+ * it to GPU memory via a staging buffer, and exposing the resulting image, image
+ * view, and sampler for use in descriptor sets.
  *
  * Inherits from Resource, so Load() / Unload() follow the standard resource
  * lifecycle. Requires a valid VulkanContext for all GPU operations.
@@ -23,13 +25,37 @@ class Texture : public Resource
 
 public:
 
+    enum TextureColorSpace
+    {
+        sRGB,
+        Linear
+    };
+
     /**
-     * @brief Constructs a Texture bound to a Vulkan context.
+     * @brief Constructs a Texture backed by a file on disk.
      *
-     * @param context   The Vulkan context used for all GPU resource operations.
-     * @param id        Unique resource identifier, used to resolve the file path.
+     * Load() resolves the file from the resource ID: it tries assets/<id>.ktx2
+     * first, then falls back to assets/<id>.jpg / .png via stb_image.
+     *
+     * @param context    The Vulkan context used for all GPU resource operations.
+     * @param id         Unique resource identifier, used to resolve the file path (without extension).
+     * @param colorSpace How to interpret JPG/PNG pixel data (ignored for KTX2, which carries its own format).
+     *                   sRGB for albedo/emissive, Linear for normal/metallicRoughness/occlusion.
      */
-    explicit Texture(VulkanContext& context, const std::string& id) : Resource(id), m_context(context) {}
+    Texture(VulkanContext& context, const std::string& id, TextureColorSpace colorSpace = TextureColorSpace::sRGB);
+
+    /**
+     * @brief Constructs a procedural 1x1 solid-color Texture. No file is read.
+     *
+     * Used for material slot placeholders (e.g. white for a missing albedo/AO
+     * map, flat normal for a missing normal map) where no source texture exists.
+     *
+     * @param context    The Vulkan context used for all GPU resource operations.
+     * @param id         Unique resource identifier (used for ResourceManager lookup only, not a file path).
+     * @param solidColor Pixel color, components in [0,1].
+     * @param colorSpace sRGB or Linear interpretation of solidColor when picking the GPU format.
+     */
+    Texture(VulkanContext& context, const std::string& id, const glm::vec4& solidColor, TextureColorSpace colorSpace);
 
     /**
      * @brief Destructor. Ensures GPU resources are released via Unload().
@@ -42,12 +68,14 @@ public:
     // ----------------------------------------------
 
     /**
-     * @brief Loads the texture from disk and uploads it to the GPU.
+     * @brief Loads the texture and uploads it to the GPU.
      *
-     * Reads a KTX file, creates a staging buffer, copies pixel data to a
-     * device-local image, and sets up the image view and sampler.
+     * Procedural textures (built via the solid-color constructor) skip the
+     * filesystem entirely and go straight to LoadSolidColor(). File-backed
+     * textures try assets/<id>.ktx2, then assets/<id>.jpg / .png, in that order;
+     * throws if neither exists.
      *
-     * @return True if all GPU resources were created successfully, false otherwise.
+     * @return True if all GPU resources were created successfully.
      */
     bool Load() override;
 
@@ -92,20 +120,50 @@ private:
     // ----------------------------------------------
 
     /**
-     * @brief Loads KTX pixel data and copies it into a staging buffer.
+     * @brief Loads KTX2 pixel data and copies it into a staging buffer.
      *
-     * Resolves the file path from the resource ID, reads the KTX file,
-     * maps a host-visible staging buffer, and memcpy's the pixel data into it.
-     * Also populates m_width, m_height, and m_format from the KTX metadata.
+     * Reads the KTX file, maps a host-visible staging buffer, and memcpy's the
+     * pixel data into it. Populates m_width, m_height, m_mipLevels, and m_format
+     * from the KTX2 metadata (m_colorSpace is not consulted — KTX2 carries its
+     * own vkFormat, tagged correctly at asset-generation time).
      *
-     * @param filePath  Absolute or relative path to the .ktx / .ktx2 file.
+     * @param filePath  Path to the .ktx2 file.
      */
-    void LoadImageData(const std::string& filePath);
+    void LoadImageDataKTX(const std::string& filePath);
+
+    /**
+     * @brief Loads JPG/PNG pixel data via stb_image and copies it into a staging buffer.
+     *
+     * Always decodes as RGBA8 (STBI_rgb_alpha), so a single mip level. Picks
+     * m_format from m_colorSpace, since stb_image can't infer sRGB vs. linear
+     * from the file itself.
+     *
+     * @param filePath  Path to the .jpg / .png file.
+     */
+    void LoadImageDataSTB(const std::string& filePath);
+
+    /**
+     * @brief Builds a procedural 1x1 image from m_solidColor. No file is read.
+     *
+     * Picks m_format from m_colorSpace, same as LoadImageDataSTB.
+     */
+    void LoadSolidColor();
+
+    /**
+     * @brief Runs the shared tail end of every Load*() path: image + view + sampler.
+     *
+     * Thin wrapper around CreateVulkanImage() / CreateTextureImageView() /
+     * CreateTextureSampler(), in that order — identical across all three sources
+     * once m_width/m_height/m_format/m_mipLevels and the staging buffer are ready.
+     *
+     * @param stagingBuffer  Host-visible buffer containing the pixel data to upload.
+     */
+    void CreateGPUResources(const vk::raii::Buffer& stagingBuffer);
 
     /**
      * @brief Creates the GPU device-local image and performs the staging buffer upload.
      *
-     * Allocates a device-local vk::Image, transitions its layout to eTransferDstOptimal, 
+     * Allocates a device-local vk::Image, transitions its layout to eTransferDstOptimal,
      * copies from the staging buffer, and transitions again to eShaderReadOnlyOptimal.
      *
      * @param stagingBuffer  Host-visible buffer containing the pixel data to upload.
@@ -116,7 +174,7 @@ private:
      * @brief Creates the shader-accessible image view for the loaded texture.
      *
      * Wraps m_image in a 2D vk::ImageView with the format and mip level count
-     * populated by LoadImageData(), ready to be bound in descriptor sets.
+     * populated by whichever Load*() path ran, ready to be bound in descriptor sets.
      */
     void CreateTextureImageView();
 
@@ -142,8 +200,13 @@ private:
     vk::raii::Sampler       m_sampler   { nullptr };      // Sampling configuration (filtering, wrapping, etc.)
 
     // Texture metadata
-    vk::Format              m_format    { vk::Format::eUndefined };   // Pixel format of the texture, resolved from KTX metadata at load time.
-    uint32_t                m_width     { 0 };                        // Image width in pixels
-    uint32_t                m_height    { 0 };                        // Image height in pixels
-    uint32_t                m_mipLevels { 1 };                        // Number of mip levels. Currently fixed at 1.
+    TextureColorSpace       m_colorSpace  { TextureColorSpace::sRGB };  // sRGB vs. linear; only consulted by the JPG/PNG and solid-color paths, KTX2 carries its own format.
+    vk::Format              m_format      { vk::Format::eUndefined };   // Pixel format.
+    uint32_t                m_width       { 0 };                        // Image width in pixels.
+    uint32_t                m_height      { 0 };                        // Image height in pixels.
+    uint32_t                m_mipLevels   { 1 };                        // Number of mip levels (always 1 outside the KTX2 path).
+
+    // Procedural attributes, when no file backs the texture, Load() builds a 1x1 image from m_solidColor instead.
+    bool                    m_isProcedural{ false };
+    glm::vec4               m_solidColor  { 1.0f };
 };
