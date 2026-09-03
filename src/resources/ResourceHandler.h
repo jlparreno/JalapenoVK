@@ -35,7 +35,7 @@ public:
 	 * @param id The resource ID.
 	 * @param manager The resource manager.
 	 */
-	ResourceHandler(const std::string& id, class ResourceManager* manager) : m_resourceId(id), m_resourceManager(manager) {}
+	ResourceHandler(const std::string& id, ResourceManager* manager) : m_resourceId(id), m_resourceManager(manager) {}
 
 
 	// ----------------------------------------------
@@ -52,7 +52,7 @@ public:
 		if (!m_resourceManager)
 			return nullptr;
 
-		return m_resourceManager->GetResource<T>(m_resourceId);
+		return m_resourceManager->template GetResource<T>(m_resourceId);
 	}
 
 	/**
@@ -65,7 +65,7 @@ public:
 		if (!m_resourceManager)
 			return false;
 
-		return m_resourceManager->HasResource<T>(m_resourceId);
+		return m_resourceManager->template HasResource<T>(m_resourceId);
 	}
 
 
