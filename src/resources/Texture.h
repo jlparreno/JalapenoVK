@@ -25,7 +25,7 @@ class Texture : public Resource
 
 public:
 
-    enum TextureColorSpace
+    enum ColorSpace
     {
         sRGB,
         Linear
@@ -42,7 +42,7 @@ public:
      * @param colorSpace How to interpret JPG/PNG pixel data (ignored for KTX2, which carries its own format).
      *                   sRGB for albedo/emissive, Linear for normal/metallicRoughness/occlusion.
      */
-    Texture(VulkanContext& context, const std::string& id, TextureColorSpace colorSpace = TextureColorSpace::sRGB);
+    Texture(VulkanContext& context, const std::string& id, ColorSpace colorSpace = ColorSpace::sRGB);
 
     /**
      * @brief Constructs a procedural 1x1 solid-color Texture. No file is read.
@@ -55,12 +55,18 @@ public:
      * @param solidColor Pixel color, components in [0,1].
      * @param colorSpace sRGB or Linear interpretation of solidColor when picking the GPU format.
      */
-    Texture(VulkanContext& context, const std::string& id, const glm::vec4& solidColor, TextureColorSpace colorSpace);
+    Texture(VulkanContext& context, const std::string& id, const glm::vec4& solidColor, ColorSpace colorSpace);
 
     /**
      * @brief Destructor. Ensures GPU resources are released via Unload().
      */
     ~Texture() { Unload(); }
+
+    // Non-copyable / non-movable (owns vk::raii handles)
+    Texture(const Texture&)            = delete;
+    Texture& operator=(const Texture&) = delete;
+    Texture(Texture&&)                 = delete;
+    Texture& operator=(Texture&&)      = delete;
 
 
     // ----------------------------------------------
@@ -200,7 +206,7 @@ private:
     vk::raii::Sampler       m_sampler   { nullptr };      // Sampling configuration (filtering, wrapping, etc.)
 
     // Texture metadata
-    TextureColorSpace       m_colorSpace  { TextureColorSpace::sRGB };  // sRGB vs. linear; only consulted by the JPG/PNG and solid-color paths, KTX2 carries its own format.
+    ColorSpace              m_colorSpace  { ColorSpace::sRGB };         // sRGB vs. linear; only consulted by the JPG/PNG and solid-color paths, KTX2 carries its own format.
     vk::Format              m_format      { vk::Format::eUndefined };   // Pixel format.
     uint32_t                m_width       { 0 };                        // Image width in pixels.
     uint32_t                m_height      { 0 };                        // Image height in pixels.

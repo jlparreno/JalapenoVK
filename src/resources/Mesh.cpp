@@ -1,19 +1,43 @@
 #include "resources/Mesh.h"
 
 #include "core/VulkanContext.h"
+#include "resources/ResourceManager.h"
+#include "materials/PBRMaterial.h"
 
 #include <tiny_gltf.h>
+#include <filesystem>
+
+Mesh::Mesh(VulkanContext& context, const std::string& id, ResourceManager& resourceManager, vk::DescriptorSetLayout layout) :
+	Resource(id),
+	m_context(context),
+	m_resourceManager(resourceManager),
+	m_materialLayout(layout)
+{
+}
 
 bool Mesh::Load()
 {
     // Construct file path using standardized naming convention
-    std::string filePath = "assets/" + GetId() + ".glb";
+	std::string filePath = "assets/" + GetId() + ".glb";
+	bool        isBinary = true;
+
+	// .glb first, fall back to .gltf; fail if neither exists.
+	if (!std::filesystem::exists(filePath))
+	{
+		filePath = "assets/" + GetId() + ".gltf";
+		isBinary = false;
+
+		if (!std::filesystem::exists(filePath))
+		{
+			return false;
+		}
+	}
 
     // Parse geometric data from file format into CPU-accessible structures
     std::vector<Vertex>     vertices;   // Temporary CPU storage for vertex attributes
     std::vector<uint32_t>   indices;    // Temporary CPU storage for triangle indices
 
-    if (!LoadMeshData(filePath, vertices, indices)) 
+    if (!LoadMeshData(filePath, isBinary, vertices, indices, m_primitives)) 
     {
         return false;                   // Failed to parse file - abort loading
     }
@@ -48,14 +72,33 @@ void Mesh::Unload()
     }
 }
 
-bool Mesh::LoadMeshData(const std::string& filePath, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices)
+Material* Mesh::GetMaterial(int materialIndex) const
+{
+	if (materialIndex >= 0 && materialIndex < static_cast<int>(m_materials.size()))
+	{
+		return m_materials[materialIndex].get();
+	}
+
+	return nullptr;
+}
+
+bool Mesh::LoadMeshData(const std::string& filePath, bool isBinary, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, std::vector<Primitive>& primitives)
 {
 	tinygltf::Model    model;
 	tinygltf::TinyGLTF loader;
 	std::string        err;
 	std::string        warn;
 
-	bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, filePath);
+	// Load with the correct method depending on the input file
+	bool ret = false;
+	if (isBinary)
+	{
+		ret = loader.LoadBinaryFromFile(&model, &err, &warn, filePath);
+	}
+	else
+	{
+		ret = loader.LoadASCIIFromFile(&model, &err, &warn, filePath);
+	}
 
 	if (!warn.empty())
 	{
@@ -75,10 +118,15 @@ bool Mesh::LoadMeshData(const std::string& filePath, std::vector<Vertex>& vertic
 
 	vertices.clear();
 	indices.clear();
+	primitives.clear();
+	m_materials.clear();
 
 	// Process all meshes in the model
 	for (const auto& mesh : model.meshes)
 	{
+		// Reserve primitives space
+		primitives.reserve(mesh.primitives.size());
+
 		for (const auto& primitive : mesh.primitives)
 		{
 			// Get indices
@@ -122,13 +170,15 @@ bool Mesh::LoadMeshData(const std::string& filePath, std::vector<Vertex>& vertic
 				tangentBuffer = &model.buffers[tangentBufferView->buffer];
 			}
 
+			// Vertices
+			vertices.reserve(vertices.size() + posAccessor.count);
 			uint32_t baseVertex = static_cast<uint32_t>(vertices.size());
 
 			for (size_t i = 0; i < posAccessor.count; i++)
 			{
 				Vertex vertex{};
 
-				// POSITION
+				// POS
 				const float* pos = reinterpret_cast<const float*>(&posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset + i * 12]);
 				// glTF is Y-up. We keep the model in its native Y-up world space and rely on the
 				// projection matrix (proj[1][1] *= -1 in the renderer) to handle Vulkan's Y-down NDC.
@@ -169,8 +219,8 @@ bool Mesh::LoadMeshData(const std::string& filePath, std::vector<Vertex>& vertic
 				vertices.push_back(vertex);
 			}
 
+			// Indices
 			const unsigned char* indexData = &indexBuffer.data[indexBufferView.byteOffset + indexAccessor.byteOffset];
-			size_t               indexCount = indexAccessor.count;
 			size_t               indexStride = 0;
 
 			// Determine index stride based on component type
@@ -193,9 +243,10 @@ bool Mesh::LoadMeshData(const std::string& filePath, std::vector<Vertex>& vertic
 				
 			}
 
-			indices.reserve(indices.size() + indexCount);
+			indices.reserve(indices.size() + indexAccessor.count);
+			uint32_t baseIndex = static_cast<uint32_t>(indices.size());
 
-			for (size_t i = 0; i < indexCount; i++)
+			for (size_t i = 0; i < indexAccessor.count; i++)
 			{
 				uint32_t index = 0;
 
@@ -214,7 +265,34 @@ bool Mesh::LoadMeshData(const std::string& filePath, std::vector<Vertex>& vertic
 
 				indices.push_back(baseVertex + index);
 			}
+
+			// Add primitive data
+			primitives.push_back({ static_cast<uint32_t>(baseIndex), static_cast<uint32_t>(indexAccessor.count), primitive.material });
 		}
+	}
+
+	// Create all required materials
+	for (const auto& material : model.materials)
+	{
+		// Load textures
+		Texture* albedoTex		= ResolveTextureSlot(model, material.pbrMetallicRoughness.baseColorTexture.index,			Texture::sRGB,		"placeholder_white");
+		Texture* normalTex		= ResolveTextureSlot(model, material.normalTexture.index,									Texture::Linear,	"placeholder_normal");
+		Texture* metRoughTex	= ResolveTextureSlot(model, material.pbrMetallicRoughness.metallicRoughnessTexture.index,	Texture::Linear,	"placeholder_white");
+		Texture* occlusionTex	= ResolveTextureSlot(model, material.occlusionTexture.index,								Texture::Linear,	"placeholder_white");
+		Texture* emissiveTex	= ResolveTextureSlot(model, material.emissiveTexture.index,									Texture::sRGB,		"placeholder_white");
+
+		std::array<Texture*, 5> pbrTextures{ albedoTex, normalTex, metRoughTex, occlusionTex, emissiveTex };
+
+		// Load factors
+		const auto& baseColorFactor = material.pbrMetallicRoughness.baseColorFactor;
+		glm::vec4 albedoFactors(baseColorFactor[0], baseColorFactor[1], baseColorFactor[2], baseColorFactor[3]);
+		glm::vec4 metallicRoughnessFactors(material.pbrMetallicRoughness.metallicFactor, material.pbrMetallicRoughness.roughnessFactor, 1.0, 1.0);
+		glm::vec4 emissiveFactors(material.emissiveFactor[0], material.emissiveFactor[1], material.emissiveFactor[2], 1.0);
+
+		PBRMaterial::PBRFactors pbrFactors{ albedoFactors, metallicRoughnessFactors, emissiveFactors };
+
+		auto new_material = std::make_unique<PBRMaterial>(m_context, m_materialLayout, pbrTextures, pbrFactors);
+		m_materials.push_back(std::move(new_material));
 	}
 
 	return true;
@@ -262,4 +340,28 @@ void Mesh::CreateIndexBuffer(const std::vector<uint32_t>& indices)
 
 	// Copy the contents of the staging into GPU local memory
 	m_context.CopyBuffer(stagingBuffer, m_indexBuffer, bufferSize);
+}
+
+Texture* Mesh::ResolveTextureSlot(const tinygltf::Model& model, int textureIndex, Texture::ColorSpace colorSpace, const std::string& placeholderId)
+{
+	if (textureIndex < 0)
+	{
+		// Slot absent in this material, use the shared placeholder
+		return m_resourceManager.GetResource<Texture>(placeholderId);
+	}
+
+	const tinygltf::Image& image = model.images[model.textures[textureIndex].source];
+
+	// If texture path is missing, reuse the mesh's own id.
+	std::string textureId = image.uri.empty() ? GetId() : ResolveTextureId(image.uri);
+
+	return m_resourceManager.LoadResource<Texture>(m_context, textureId, colorSpace).Get();
+}
+
+std::string Mesh::ResolveTextureId(const std::string& uri) const
+{
+	std::filesystem::path meshFolder = std::filesystem::path(GetId()).parent_path();
+	std::filesystem::path textureName = std::filesystem::path(uri).stem();
+
+	return (meshFolder / textureName).generic_string();
 }

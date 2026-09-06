@@ -46,8 +46,9 @@ public:
      * @param resourceManager   Resource registry used to resolve textures, meshes, and shaders.
      * @param scene             Main scene that contains all the entities.
      * @param window            GLFW window providing the presentation surface.
+     * @param pbrMaterialLayout Shared PBR material descriptor set layout (set 1), created once in main.cpp, passed to GeometryPass's pipeline layout.
      */
-    Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window);
+    Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window, vk::DescriptorSetLayout pbrMaterialLayout);
 
     /**
      * @brief Destructor. Owned vk::raii handles release themselves.
@@ -150,6 +151,8 @@ private:
     ResourceManager&                        m_resourceManager;                  // Resource registry used to resolve textures, meshes, and shaders. Not owned by this class.
     RenderPassManager                       m_renderPassManager;                // Owned manager that orders and executes the pass sequence each frame.
     Swapchain                               m_swapchain;                        // Owned swapchain and its per-frame synchronization primitives.
+
+    vk::DescriptorSetLayout                 m_pbrMaterialLayout;                // Shared PBR material set layout
 
     std::vector<vk::raii::CommandBuffer>    m_commandBuffers;                   // One primary command buffer per frame-in-flight slot.
 

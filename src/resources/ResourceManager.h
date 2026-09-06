@@ -35,9 +35,9 @@ public:
 	ResourceManager() = default;
 
 	/**
-	 * @brief Virtual destructor for proper cleanup.
+	 * @brief Destructor.
 	 */
-	virtual ~ResourceManager() = default;
+	~ResourceManager() = default;
 
 
 	// ----------------------------------------------

@@ -13,7 +13,7 @@ class VulkanContext;
  * @brief Metallic-roughness PBR material.
  *
  * Owns its own descriptor set: a PBRFactors UBO plus the 5 PBR texture slots (albedo/normal/metallicRoughness/occlusion/emissive), 
- * written once at construction and never touched again.
+ * written once at construction and never touched again. 
  * Unlike set 0 (view/proj/light, owned by GeometryPass), material data doesn't change per frame.
  *
  * Textures are borrowed (non-owning Texture*), same pattern as elsewhere:
@@ -60,6 +60,25 @@ public:
     PBRMaterial& operator=(const PBRMaterial&) = delete;
     PBRMaterial(PBRMaterial&&)                 = delete;
     PBRMaterial& operator=(PBRMaterial&&)      = delete;
+
+
+    // ----------------------------------------------
+    // STATIC METHODS
+    // ----------------------------------------------
+
+    /**
+     * @brief Builds the descriptor set layout shared by every PBRMaterial instance.
+     *
+     * Standalone factory, called once before any Mesh loads (materials need this layout
+     * to build their own descriptor sets as they're parsed out of a glTF file).
+     * Mirrors exactly the 6 bindings CreateDescriptorSet() writes:
+     * binding 0 = PBRFactors UBO, bindings 1-5 = the 5 combined image samplers.
+     *
+     * @param context  The Vulkan context used for all GPU resource operations.
+     *
+     * @return A layout usable by every PBRMaterial's own descriptor set.
+     */
+    static vk::raii::DescriptorSetLayout CreateSetLayout(VulkanContext& context);
 
 
     // ----------------------------------------------

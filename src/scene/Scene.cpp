@@ -17,12 +17,12 @@ Scene::Scene()
 	// Order matters: CameraComponent::Init and CameraControllerComponent::Init both read the Transform, 
 	// so the Transform (with its initial pose) must be added first.
 	auto* cameraTransform = m_activeCamera->AddComponent<TransformComponent>();
-	cameraTransform->SetPosition({ 2.0f, 2.0f, 2.0f });
+	cameraTransform->SetPosition({ 3.0f, 2.0f, 3.0f });
 
-	// Orient from (2,2,2) towards the origin.
+	// Orient from (2,0,2) towards the origin.
 	// Convention: local forward = -Z, so yaw rotates around world Y and yaw=0 looks at -Z.
 	constexpr float initialYawDeg = 45.0f;
-	constexpr float initialPitchDeg = -35.0f;
+	constexpr float initialPitchDeg = -25.0f;
 	cameraTransform->SetRotation({ glm::radians(initialPitchDeg), glm::radians(initialYawDeg), 0.0f });
 
 	// Camera component

@@ -13,6 +13,7 @@
 #include "scene/Scene.h"
 #include "scene/TransformComponent.h"
 #include "scene/LightComponent.h"
+#include "materials/PBRMaterial.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/vec3.hpp>
@@ -53,6 +54,10 @@ class JalapenoVK
 	std::unique_ptr<InputManager>		m_inputManager;		// Drives the active camera controller; wired up in InitInput() / InitRenderer().
 	std::unique_ptr<ResourceManager>	m_resourceManager;	// Owns loaded textures/meshes/shaders; must be unloaded before m_context is destroyed (see Cleanup()).
 
+	vk::raii::DescriptorSetLayout		m_pbrMaterialLayout{ nullptr };
+
+	TransformComponent*					m_modelTransform{ nullptr }; // Non-owning, cached for the demo Y-spin. Not owned by this class.
+
 	void InitWindow()
 	{
 		m_window = std::make_unique<Window>(TITLE, WIDTH, HEIGHT);
@@ -71,19 +76,25 @@ class JalapenoVK
 	void InitVulkan()
 	{
 		m_context = std::make_unique<VulkanContext>(m_window->GetHandle());
+
+		// Create Material layouts, mandatory to load resources correctly
+		m_pbrMaterialLayout = PBRMaterial::CreateSetLayout(*m_context);
 	}
 
 	void InitResources()
 	{
 		m_resourceManager = std::make_unique<ResourceManager>();
 
+		// Load placeholder textures to support correct model loading when no textures available.
+		m_resourceManager->LoadResource<Texture>(*m_context, "placeholder_white", glm::vec4(1.0f), Texture::sRGB);
+		m_resourceManager->LoadResource<Texture>(*m_context, "placeholder_normal", glm::vec4(0.5f, 0.5f, 1.0f, 1.0f), Texture::Linear);
+
 		// Load the resources the current scene needs. Ownership stays in the ResourceManager;
 		// the returned handles are used only to validate that the load succeeded.
-		auto texture = m_resourceManager->LoadResource<Texture>(*m_context, "viking_room");
-		auto mesh = m_resourceManager->LoadResource<Mesh>(*m_context, "viking_room");
-		auto shader = m_resourceManager->LoadResource<Shader>(*m_context, "shader.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
+		auto mesh	 = m_resourceManager->LoadResource<Mesh>(*m_context, "DamagedHelmet/glTF/DamagedHelmet", *m_resourceManager, *m_pbrMaterialLayout);
+		auto shader  = m_resourceManager->LoadResource<Shader>(*m_context, "pbr.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
 
-		if (!texture || !mesh || !shader)
+		if (!mesh || !shader)
 		{
 			throw std::runtime_error("Failed to load required resources");
 		}
@@ -109,15 +120,16 @@ class JalapenoVK
 
 		auto* modelTransform = model->AddComponent<TransformComponent>();
 		modelTransform->SetPosition({ 0.0f, 0.0f, 0.0f });
-		modelTransform->SetRotation({ 0.0f, -45.0f, 0.0f });
+		modelTransform->SetRotation({ glm::radians(90.0f), 0.0f, 0.0f });
 		modelTransform->SetScale({ 1.0f, 1.0f, 1.0f });
+		m_modelTransform = modelTransform;
 
-		model->AddComponent<MeshComponent>()->SetMesh(m_resourceManager->GetResource<Mesh>("viking_room"));
+		model->AddComponent<MeshComponent>()->SetMesh(m_resourceManager->GetResource<Mesh>("DamagedHelmet/glTF/DamagedHelmet"));
 	}
 
 	void InitRenderer()
 	{
-		m_renderer = std::make_unique<Renderer>(*m_context, *m_resourceManager, *m_scene, m_window->GetHandle());
+		m_renderer = std::make_unique<Renderer>(*m_context, *m_resourceManager, *m_scene, m_window->GetHandle(), *m_pbrMaterialLayout);
 
 		// Cache a non-owning handle to the camera controller so the input layer can drive it.
 		if (Entity* camera = m_scene->GetActiveCamera())
@@ -148,8 +160,15 @@ class JalapenoVK
 
 			m_inputManager->ProcessInput();
 
-			m_scene->Update(deltaTime);
+			// Rotate model 45 degrees per second, just for demo
+			if (m_modelTransform)
+			{
+				glm::vec3 rotation = m_modelTransform->GetRotation();
+				rotation.y += glm::radians(45.0f) * deltaTime.count();
+				m_modelTransform->SetRotation(rotation);
+			}
 
+			m_scene->Update(deltaTime);
 			m_renderer->Render();
 		}
 
@@ -165,6 +184,8 @@ class JalapenoVK
 		// to be alive during their destructors.
 		m_resourceManager->UnloadAllResources();
 		m_renderer.reset();
+		m_pbrMaterialLayout = nullptr;
+
 		m_context.reset();
 	}
 

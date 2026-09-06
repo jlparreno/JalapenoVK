@@ -28,11 +28,6 @@ public:
 	 */
 	explicit InputManager(GLFWwindow* window);
 
-	/**
-	 * @brief Default destructor.
-	 */
-	~InputManager() = default;
-
 	// ----------------------------------------------
 	// INPUT PROCESSING
 	// ----------------------------------------------

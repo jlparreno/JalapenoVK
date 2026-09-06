@@ -4,7 +4,7 @@
 #include "core/VulkanContext.h"
 #include "resources/Mesh.h"
 #include "resources/Shader.h"
-#include "resources/Texture.h"
+#include "materials/Material.h"
 
 #include <cstring>
 
@@ -119,7 +119,15 @@ void GeometryPass::Render(vk::raii::CommandBuffer& cmd, const FrameInfo& frame)
         cmd.bindVertexBuffers(0, renderable.mesh->GetVertexBuffer(), { 0 });
         cmd.bindIndexBuffer(renderable.mesh->GetIndexBuffer(), 0, vk::IndexType::eUint32);
 
-        cmd.drawIndexed(renderable.mesh->GetIndexCount(), 1, 0, 0, 0);
+        for (const auto& primitive : renderable.mesh->GetPrimitives())
+        {
+            if (Material* material = renderable.mesh->GetMaterial(primitive.materialIndex))
+            {
+                cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipelineLayout, 1, material->GetDescriptorSet(), nullptr);
+            }
+
+            cmd.drawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
+        }
     }
 }
 
@@ -150,11 +158,10 @@ void GeometryPass::OnResize(vk::Extent2D newExtent)
 
 void GeometryPass::CreateDescriptorSetLayout()
 {
-    std::array<vk::DescriptorSetLayoutBinding, 2> bindings
+    std::array<vk::DescriptorSetLayoutBinding, 1> bindings
     {
         {
-            {.binding = 0, .descriptorType = vk::DescriptorType::eUniformBuffer,        .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eVertex},
-            {.binding = 1, .descriptorType = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eFragment}
+            {.binding = 0, .descriptorType = vk::DescriptorType::eUniformBuffer, .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment}
         }
     };
 
@@ -164,7 +171,7 @@ void GeometryPass::CreateDescriptorSetLayout()
         .pBindings    = bindings.data()
     };
 
-    m_setLayout = vk::raii::DescriptorSetLayout(m_context.GetDevice(), layoutInfo);
+    m_layout = vk::raii::DescriptorSetLayout(m_context.GetDevice(), layoutInfo);
 }
 
 void GeometryPass::CreatePipeline()
@@ -256,10 +263,11 @@ void GeometryPass::CreatePipeline()
                      .setOffset(0)
                      .setSize(sizeof(glm::mat4));
 
+    std::array<vk::DescriptorSetLayout, 2> layouts{ *m_layout, m_info.materialLayout };
     vk::PipelineLayoutCreateInfo pipelineLayoutInfo
     {
-        .setLayoutCount         = 1,
-        .pSetLayouts            = &*m_setLayout,
+        .setLayoutCount         = 2,
+        .pSetLayouts            = layouts.data(),
         .pushConstantRangeCount = 1,
         .pPushConstantRanges    = &pushConstantRange
     };
@@ -316,8 +324,7 @@ void GeometryPass::CreateDescriptorPool()
 {
     std::vector<vk::DescriptorPoolSize> poolSizes
     {
-        {.type = vk::DescriptorType::eUniformBuffer,        .descriptorCount = k_maxFramesInFlight},
-        {.type = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = k_maxFramesInFlight}
+        { .type = vk::DescriptorType::eUniformBuffer, .descriptorCount = k_maxFramesInFlight }
     };
 
     m_descriptorPool = DescriptorAllocator::CreatePool(m_context, k_maxFramesInFlight, poolSizes);
@@ -329,7 +336,7 @@ void GeometryPass::CreateUniformBuffers()
 
     for (size_t i = 0; i < k_maxFramesInFlight; i++)
     {
-        vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
+        vk::DeviceSize bufferSize = sizeof(SceneData);
 
         auto [buffer, bufferMem] = m_context.CreateBuffer(bufferSize,
             vk::BufferUsageFlagBits::eUniformBuffer,
@@ -344,7 +351,7 @@ void GeometryPass::CreateUniformBuffers()
 
 void GeometryPass::CreateDescriptorSets()
 {
-    m_descriptorSets = DescriptorAllocator::AllocateSets(m_context, m_descriptorPool, *m_setLayout, k_maxFramesInFlight);
+    m_descriptorSets = DescriptorAllocator::AllocateSets(m_context, m_descriptorPool, *m_layout, k_maxFramesInFlight);
 
     for (size_t i = 0; i < k_maxFramesInFlight; i++)
     {
@@ -352,17 +359,10 @@ void GeometryPass::CreateDescriptorSets()
         {
             .buffer = m_uniformBuffers[i].buffer,
             .offset = 0,
-            .range  = sizeof(UniformBufferObject)
+            .range  = sizeof(SceneData)
         };
 
-        vk::DescriptorImageInfo imageInfo
-        {
-            .sampler     = m_info.texture->GetSampler(),
-            .imageView   = m_info.texture->GetImageView(),
-            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
-        };
-
-        std::array<vk::WriteDescriptorSet, 2> writes
+        std::array<vk::WriteDescriptorSet, 1> writes
         {
             {
                 {
@@ -372,14 +372,6 @@ void GeometryPass::CreateDescriptorSets()
                     .descriptorCount = 1,
                     .descriptorType  = vk::DescriptorType::eUniformBuffer,
                     .pBufferInfo     = &bufferInfo
-                },
-                {
-                    .dstSet          = m_descriptorSets[i],
-                    .dstBinding      = 1,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType  = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo      = &imageInfo
                 }
             }
         };
@@ -390,9 +382,12 @@ void GeometryPass::CreateDescriptorSets()
 
 void GeometryPass::UpdateUniformBuffer(uint32_t frameIndex)
 {
-    UniformBufferObject ubo{};
+    SceneData ubo{};
     ubo.view  = m_frame.view;
     ubo.proj  = m_frame.proj;
+    ubo.lightDirection = glm::vec4(m_frame.lightDirection, 0.0f);
+    ubo.lightColorIntensity = glm::vec4(m_frame.lightColor, m_frame.lightIntensity);
+    ubo.cameraPosition = glm::vec4(m_frame.cameraPosition, 0.0f);
 
     std::memcpy(m_uniformBuffers[frameIndex].mapped, &ubo, sizeof(ubo));
 }

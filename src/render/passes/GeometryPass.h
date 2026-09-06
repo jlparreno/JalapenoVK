@@ -8,7 +8,6 @@
 // Forward declarations
 class VulkanContext;
 class Shader;
-class Texture;
 class Mesh;
 
 /**
@@ -32,10 +31,10 @@ public:
      */
     struct CreateInfo
     {
-        vk::Format    colorFormat;  // Swapchain color format (used for pipeline + MSAA target).
-        vk::Extent2D  extent;       // Initial render target size.
-        Shader*       shader;       // Shader resource used by this pass (borrowed).
-        Texture*      texture;      // Texture bound in the descriptor sets (borrowed, temporary).
+        vk::Format              colorFormat;    // Swapchain color format (used for pipeline + MSAA target).
+        vk::Extent2D            extent;         // Initial render target size.
+        Shader*                 shader;         // Shader resource used by this pass (borrowed)
+        vk::DescriptorSetLayout materialLayout; // Shared PBR material set layout
     };
 
     /**
@@ -47,6 +46,11 @@ public:
         vk::Extent2D  extent{};                      // Actual render area for this frame.
         glm::mat4     view { 1.0f };                 // View matrix supplied by the (still external) camera.
         glm::mat4     proj { 1.0f };                 // Projection matrix supplied by the camera.
+
+        glm::vec3     lightDirection{};              // World-space direction the active light points towards.
+        glm::vec3     lightColor{};                  // Active light's color (RGB, not intensity-scaled).
+        float         lightIntensity{ 0.0f };        // Active light's intensity multiplier.
+        glm::vec3     cameraPosition{};              // World-space position of the active camera.
 
         std::vector<Renderable> renderables;
     };
@@ -109,18 +113,18 @@ private:
     // ----------------------------------------------
 
     // Non-owned references / config
-    VulkanContext&      m_context;
-    CreateInfo          m_info;
-    FrameData           m_frame{};
+    VulkanContext&      m_context;                                              // Vulkan context used for all GPU operations. Not owned by this class.
+    CreateInfo          m_info;                                                 // Static configuration this pass was constructed with (shader, material layout, target format/extent).
+    FrameData           m_frame{};                                              // Most recent per-frame data pushed via SetFrameData(), consumed by Render().
 
     // Derived at construction
     vk::SampleCountFlagBits m_samples     { vk::SampleCountFlagBits::e1 };
     vk::Format              m_depthFormat { vk::Format::eUndefined };
 
     // Pipeline stack
-    vk::raii::DescriptorSetLayout        m_setLayout      { nullptr };
-    vk::raii::PipelineLayout             m_pipelineLayout { nullptr };
-    vk::raii::Pipeline                   m_pipeline       { nullptr };
+    vk::raii::DescriptorSetLayout        m_layout           { nullptr };        // Set-0 layout (per-frame UBO: view/proj/light/camera).
+    vk::raii::PipelineLayout             m_pipelineLayout   { nullptr };        // Set 0 (m_layout) + set 1 (m_info.materialLayout) + model push constants.
+    vk::raii::Pipeline                   m_pipeline         { nullptr };        // Graphics pipeline. PBR at the moment.
 
     // Attachments (MSAA color + depth). Rendered into, then color is resolved to swapchain.
     vk::raii::Image                      m_colorImage  { nullptr };

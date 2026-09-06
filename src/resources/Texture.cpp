@@ -9,14 +9,14 @@
 #include <array>
 #include <filesystem>
 
-Texture::Texture(VulkanContext& context, const std::string& id, TextureColorSpace colorSpace) : 
+Texture::Texture(VulkanContext& context, const std::string& id, ColorSpace colorSpace) : 
     Resource(id), 
     m_context(context),
     m_colorSpace(colorSpace)
 {
 }
 
-Texture::Texture(VulkanContext& context, const std::string& id, const glm::vec4& solidColor, TextureColorSpace colorSpace) :
+Texture::Texture(VulkanContext& context, const std::string& id, const glm::vec4& solidColor, ColorSpace colorSpace) :
     Resource(id),
     m_context(context),
     m_colorSpace(colorSpace),
@@ -156,10 +156,10 @@ void Texture::LoadImageDataSTB(const std::string& filePath)
     // Select format, sRGB by default
     switch (m_colorSpace)
     {
-        case TextureColorSpace::sRGB:
+        case ColorSpace::sRGB:
             m_format = vk::Format::eR8G8B8A8Srgb;
             break;
-        case TextureColorSpace::Linear:
+        case ColorSpace::Linear:
             m_format = vk::Format::eR8G8B8A8Unorm;
             break;
         default:
@@ -182,10 +182,10 @@ void Texture::LoadSolidColor()
     // Select format, sRGB by default
     switch (m_colorSpace)
     {
-        case TextureColorSpace::sRGB:
+        case ColorSpace::sRGB:
             m_format = vk::Format::eR8G8B8A8Srgb;
             break;
-        case TextureColorSpace::Linear:
+        case ColorSpace::Linear:
             m_format = vk::Format::eR8G8B8A8Unorm;
             break;
         default:

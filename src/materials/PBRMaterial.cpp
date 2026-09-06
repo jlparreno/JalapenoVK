@@ -92,3 +92,30 @@ void PBRMaterial::CreateDescriptorSet(vk::DescriptorSetLayout layout)
 
     m_context.GetDevice().updateDescriptorSets(writes, {});
 }
+
+vk::raii::DescriptorSetLayout PBRMaterial::CreateSetLayout(VulkanContext& context)
+{
+    vk::raii::DescriptorSetLayout descriptorSetLayout{ nullptr };
+
+    std::array<vk::DescriptorSetLayoutBinding, 6> bindings
+    {
+        {
+            {.binding = 0, .descriptorType = vk::DescriptorType::eUniformBuffer,        .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eFragment},
+            {.binding = 1, .descriptorType = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eFragment},
+            {.binding = 2, .descriptorType = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eFragment},
+            {.binding = 3, .descriptorType = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eFragment},
+            {.binding = 4, .descriptorType = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eFragment},
+            {.binding = 5, .descriptorType = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eFragment}
+        }
+    };
+
+    vk::DescriptorSetLayoutCreateInfo layoutInfo
+    {
+        .bindingCount = static_cast<uint32_t>(bindings.size()),
+        .pBindings = bindings.data()
+    };
+
+    descriptorSetLayout = vk::raii::DescriptorSetLayout(context.GetDevice(), layoutInfo);
+
+    return descriptorSetLayout;
+}

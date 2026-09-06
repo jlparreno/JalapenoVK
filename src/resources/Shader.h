@@ -35,6 +35,12 @@ public:
      */
     ~Shader() { Unload(); }
 
+    // Non-copyable / non-movable (owns vk::raii handles)
+    Shader(const Shader&)            = delete;
+    Shader& operator=(const Shader&) = delete;
+    Shader(Shader&&)                 = delete;
+    Shader& operator=(Shader&&)      = delete;
+
 
     // ----------------------------------------------
     // RESOURCE OVERRIDES

@@ -8,15 +8,17 @@
 #include "resources/Texture.h"
 #include "scene/TransformComponent.h"
 #include "scene/MeshComponent.h"
+#include "scene/LightComponent.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
-Renderer::Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window) :
+Renderer::Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window, vk::DescriptorSetLayout pbrMaterialLayout) :
     m_context(context),
     m_window(window),
     m_scene(scene),
     m_resourceManager(resourceManager),
-    m_swapchain(context, window)
+    m_swapchain(context, window),
+    m_pbrMaterialLayout(pbrMaterialLayout)
 {
     CreateCommandBuffers();
     SetupRenderPasses();
@@ -64,6 +66,13 @@ void Renderer::Render()
         glm::mat4 view = camera ? camera->GetViewMatrix()       : glm::mat4(1.0f);
         glm::mat4 proj = camera ? camera->GetProjectionMatrix() : glm::mat4(1.0f);
         proj[1][1] *= -1.0f; // GLM assumes OpenGL NDC (Y up); Vulkan is Y down.
+        glm::vec3 cameraPos = camera ? camera->GetPosition()    : glm::vec3(0.0f);
+
+        // Active light
+        auto* light = m_scene.GetActiveLight() ? m_scene.GetActiveLight()->GetComponent<LightComponent>() : nullptr;
+        glm::vec3 lightDirection = light ? light->GetDirection() : glm::vec3(0.0f, -1.0f, 0.0f);
+        glm::vec3 lightColor = light ? light->GetColor()         : glm::vec3(1.0f);
+        float lightIntensity = light ? light->GetIntensity()     : 1.0f;
 
         GeometryPass::FrameData frameData
         {
@@ -71,6 +80,12 @@ void Renderer::Render()
             .extent             = m_swapchain.GetExtent(),
             .view               = view,
             .proj               = proj,
+            
+            .lightDirection     = lightDirection,
+            .lightColor         = lightColor,
+            .lightIntensity     = lightIntensity,
+            .cameraPosition     = cameraPos,
+
             .renderables        = renderables
         };
         m_geometryPass->SetFrameData(frameData);
@@ -136,9 +151,9 @@ void Renderer::SetupRenderPasses()
     GeometryPass::CreateInfo info
     {
         .colorFormat = m_swapchain.GetFormat(),
-        .extent      = m_swapchain.GetExtent(),
-        .shader      = m_resourceManager.GetResource<Shader>("shader.slang"),
-        .texture     = m_resourceManager.GetResource<Texture>("viking_room")
+        .extent = m_swapchain.GetExtent(),
+        .shader = m_resourceManager.GetResource<Shader>("pbr.slang"),
+        .materialLayout = m_pbrMaterialLayout
     };
 
     m_geometryPass = m_renderPassManager.AddRenderPass<GeometryPass>("GeometryPass", m_context, info);

@@ -66,6 +66,21 @@ struct Vertex
 	}
 };
 
+/**
+ * @brief One contiguous index sub-range of a Mesh, drawn with a single Material.
+ *
+ * A glTF mesh is a list of primitives, each referencing its own material. Mesh
+ * concatenates every primitive's data into one shared vertex/index buffer pair,
+ * so a Primitive only needs to record where its own slice of the index buffer
+ * starts and which material to bind while drawing it.
+ */
+struct Primitive
+{
+	uint32_t	firstIndex{ 0 };		// Offset into the mesh's index buffer where this primitive's indices start.
+	uint32_t	indexCount{ 0 };		// Number of indices belonging to this primitive.
+	int			materialIndex{ -1 };	// Index into the mesh's material list, or -1 if the primitive declares no material.
+};
+
 
 struct Renderable
 {
@@ -74,16 +89,19 @@ struct Renderable
 };
 
 /**
- * @brief Per-object transform block uploaded to the vertex shader each frame.
+ * @brief Per-frame scene data (set 0): camera view/projection + active light, shared by every draw this frame.
  *
  * Layout matches the std140-aligned UBO expected by the shader; the alignas(16)
- * qualifiers keep each matrix on a 16-byte boundary independent of the host
+ * qualifiers keep each element on a 16-byte boundary independent of the host
  * compiler's packing rules.
  */
-struct UniformBufferObject
+struct SceneData
 {
-	alignas(16) glm::mat4 view;     // View matrix supplied by the camera.
-	alignas(16) glm::mat4 proj;     // Perspective projection matrix.
+	alignas(16) glm::mat4 view;						// View matrix supplied by the camera.
+	alignas(16) glm::mat4 proj;						// Perspective projection matrix.
+	alignas(16) glm::vec4 lightDirection;			// xyz = world-space direction the light points towards; w unused.
+	alignas(16) glm::vec4 lightColorIntensity;		// rgb = light color, w = intensity multiplier.
+	alignas(16) glm::vec4 cameraPosition;			// xyz = world-space camera position, needed for the BRDF's view vector; w unused.
 };
 
 /**
