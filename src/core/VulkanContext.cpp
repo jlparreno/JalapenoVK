@@ -58,20 +58,21 @@ void VulkanContext::CopyBuffer(vk::raii::Buffer& srcBuffer, vk::raii::Buffer& ds
 	EndSingleTimeCommands(*commandCopyBuffer);
 }
 
-std::pair<vk::raii::Image, vk::raii::DeviceMemory> VulkanContext::CreateImage(uint32_t width, uint32_t height, uint32_t mipLevels, vk::SampleCountFlagBits numSamples, vk::Format format, vk::ImageTiling tiling, vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties)
+std::pair<vk::raii::Image, vk::raii::DeviceMemory> VulkanContext::CreateImage(const ImageDescription& imageDesc)
 {
 	// Image creation info
 	vk::ImageCreateInfo imageInfo
 	{
-		.imageType	 = vk::ImageType::e2D,
-		.format		 = format,
-		.extent		 = {width, height, 1},
-		.mipLevels	 = mipLevels,
-		.arrayLayers = 1,
-		.samples	 = numSamples,
-		.tiling		 = tiling,
-		.usage		 = usage,
-		.sharingMode = vk::SharingMode::eExclusive
+		.flags		 = imageDesc.flags,
+		.imageType	 = imageDesc.imageType,
+		.format		 = imageDesc.format,
+		.extent		 = {imageDesc.width, imageDesc.height, imageDesc.depth},
+		.mipLevels	 = imageDesc.mipLevels,
+		.arrayLayers = imageDesc.arrayLayers,
+		.samples	 = imageDesc.samples,
+		.tiling		 = imageDesc.tiling,
+		.usage		 = imageDesc.usage,
+		.sharingMode = imageDesc.sharingMode
 	};
 
 	// Create the Vulkan Image object. No memory is allocated here, it is only the resource
@@ -82,7 +83,7 @@ std::pair<vk::raii::Image, vk::raii::DeviceMemory> VulkanContext::CreateImage(ui
 	vk::MemoryAllocateInfo allocInfo
 	{
 		.allocationSize = memRequirements.size,
-		.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, properties)
+		.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, imageDesc.memory)
 	};
 
 	// Memory reserved here, on DeviceMemory creation
@@ -156,14 +157,21 @@ void VulkanContext::CopyBufferToImage(const vk::raii::Buffer& buffer, vk::raii::
 	EndSingleTimeCommands(*commandBuffer);
 }
 
-vk::raii::ImageView VulkanContext::CreateImageView(vk::Image const& image, vk::Format format, vk::ImageAspectFlags aspectFlags, uint32_t mipLevels)
+vk::raii::ImageView VulkanContext::CreateImageView(const ImageViewDescription& viewDesc)
 {
 	vk::ImageViewCreateInfo viewInfo
 	{
-		.image = image,
-		.viewType = vk::ImageViewType::e2D,
-		.format = format,
-		.subresourceRange = {.aspectMask = aspectFlags, .baseMipLevel = 0, .levelCount = mipLevels, .baseArrayLayer = 0, .layerCount = 1}
+		.image		= viewDesc.image,
+		.viewType	= viewDesc.viewType,
+		.format		= viewDesc.format,
+		.subresourceRange = 
+		{
+			.aspectMask		= viewDesc.aspect, 
+			.baseMipLevel	= viewDesc.baseMipLevel, 
+			.levelCount		= viewDesc.levelCount, 
+			.baseArrayLayer = viewDesc.baseArrayLayer, 
+			.layerCount		= viewDesc.layerCount
+		}
 	};
 
 	return vk::raii::ImageView(m_device, viewInfo);

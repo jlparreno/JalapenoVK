@@ -1,5 +1,6 @@
 #include "resources/Texture.h"
 #include "core/VulkanContext.h"
+#include "core/VulkanTypes.h"
 
 // stb_image is header-only: the implementation must be emitted in exactly one TU.
 #define STB_IMAGE_IMPLEMENTATION
@@ -223,15 +224,16 @@ void Texture::CreateGPUResources(const vk::raii::Buffer& stagingBuffer)
 void Texture::CreateVulkanImage(const vk::raii::Buffer& stagingBuffer)
 {
     // Create the actual Image in GPU memory, that allows to receive a copy. Here CPU cannot write directly
-    std::tie(m_image, m_memory) = m_context.CreateImage(
-        m_width,
-        m_height,
-        m_mipLevels,
-        vk::SampleCountFlagBits::e1,                                                // No multisample, its a texture
-        m_format,																    // Image format
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,    // We will use image as destination (to copy info on it), and it will be sampled on shaders
-        vk::MemoryPropertyFlagBits::eDeviceLocal);								    // GPU local (faster)
+    ImageDescription imageDesc =
+    {
+        .width = m_width,
+        .height = m_height,
+        .format = m_format,
+        .usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
+        .mipLevels = m_mipLevels
+    };
+
+    std::tie(m_image, m_memory) = m_context.CreateImage(imageDesc);
 
     // Perform the copy from the staging buffer to the GPU image
     m_context.TransitionImageLayout(m_image, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, m_mipLevels);
@@ -243,7 +245,14 @@ void Texture::CreateVulkanImage(const vk::raii::Buffer& stagingBuffer)
 
 void Texture::CreateTextureImageView()
 {
-    m_imageView = m_context.CreateImageView(*m_image, m_format, vk::ImageAspectFlagBits::eColor, m_mipLevels); // Miplevels because it is a texture
+    ImageViewDescription viewDesc =
+    {
+        .image = *m_image,
+        .format = m_format,
+        .levelCount = m_mipLevels  // Specify miplevels because it is a texture and can have more than 1 (default)
+    };
+
+    m_imageView = m_context.CreateImageView(viewDesc);
 }
 
 void Texture::CreateTextureSampler()

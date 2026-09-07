@@ -1,6 +1,7 @@
 #include "render/Swapchain.h"
 
 #include "core/VulkanContext.h"
+#include "core/VulkanTypes.h"
 
 #include <algorithm>
 #include <limits>
@@ -147,7 +148,13 @@ void Swapchain::CreateImageViews()
 
     for (const vk::Image& image : m_images)
     {
-        m_imageViews.push_back(m_context.CreateImageView(image, m_format, vk::ImageAspectFlagBits::eColor, 1)); // single mip level, is a swap chain image
+        ImageViewDescription viewDesc =
+        {
+            .image = image,
+            .format = m_format
+        };
+
+        m_imageViews.push_back(m_context.CreateImageView(viewDesc));
     }
 }
 

@@ -1,6 +1,7 @@
 #include "render/RenderTarget.h"
 
 #include "core/VulkanContext.h"
+#include "core/VulkanTypes.h"
 
 RenderTarget::RenderTarget(VulkanContext& context, vk::Format colorFormat, vk::Extent2D extent) : 
     m_context(context),
@@ -36,24 +37,45 @@ void RenderTarget::OnResize(vk::Extent2D newExtent)
 void RenderTarget::CreateAttachments()
 {
     // MSAA color attachment
-    std::tie(m_colorImage, m_colorMemory) = m_context.CreateImage(
-        m_extent.width, m_extent.height, 1,
-        m_samples,
-        m_colorFormat,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eTransientAttachment | vk::ImageUsageFlagBits::eColorAttachment,
-        vk::MemoryPropertyFlagBits::eDeviceLocal);
-    m_colorView = m_context.CreateImageView(m_colorImage, m_colorFormat, vk::ImageAspectFlagBits::eColor, 1);
+    ImageDescription imageDesc =
+    {
+        .width = m_extent.width,
+        .height = m_extent.height,
+        .format = m_colorFormat,
+        .usage = vk::ImageUsageFlagBits::eTransientAttachment | vk::ImageUsageFlagBits::eColorAttachment,
+        .samples = m_samples,
+    };
+    
+    std::tie(m_colorImage, m_colorMemory) = m_context.CreateImage(imageDesc);
+
+    ImageViewDescription viewDesc =
+    {
+        .image = m_colorImage, 
+        .format = m_colorFormat
+    };
+
+    m_colorView = m_context.CreateImageView(viewDesc);
 
     // Depth attachment
-    std::tie(m_depthImage, m_depthMemory) = m_context.CreateImage(
-        m_extent.width, m_extent.height, 1,
-        m_samples,
-        m_depthFormat,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eDepthStencilAttachment,
-        vk::MemoryPropertyFlagBits::eDeviceLocal);
-    m_depthView = m_context.CreateImageView(m_depthImage, m_depthFormat, vk::ImageAspectFlagBits::eDepth, 1);
+    ImageDescription depthImageDesc =
+    {
+        .width = m_extent.width,
+        .height = m_extent.height,
+        .format = m_depthFormat,
+        .usage = vk::ImageUsageFlagBits::eDepthStencilAttachment,
+        .samples = m_samples,
+    };
+
+    std::tie(m_depthImage, m_depthMemory) = m_context.CreateImage(depthImageDesc);
+
+    ImageViewDescription depthViewDesc =
+    {
+        .image = m_depthImage,
+        .format = m_depthFormat,
+        .aspect = vk::ImageAspectFlagBits::eDepth
+    };
+
+    m_depthView = m_context.CreateImageView(depthViewDesc);
 }
 
 vk::SampleCountFlagBits RenderTarget::QueryMaxUsableSampleCount() const

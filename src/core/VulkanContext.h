@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/VulkanIncludes.h"
+#include "core/VulkanTypes.h"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -128,17 +129,11 @@ public:
      *
      * Used for textures, render targets, and other image-based GPU resources.
      *
+     * @param imageDesc  Size, format, usage, and any non-default properties of the image to create.
+     *
      * @return Pair containing the created image and its allocated memory.
      */
-    std::pair<vk::raii::Image, vk::raii::DeviceMemory>  CreateImage(
-        uint32_t width,
-        uint32_t height,
-        uint32_t mipLevels,
-        vk::SampleCountFlagBits numSamples,
-        vk::Format format,
-        vk::ImageTiling tiling,
-        vk::ImageUsageFlags usage,
-        vk::MemoryPropertyFlags properties);
+    std::pair<vk::raii::Image, vk::raii::DeviceMemory>  CreateImage(const ImageDescription& imageDesc);
 
     /**
      * @brief Transitions an image between Vulkan layouts.
@@ -163,9 +158,14 @@ public:
     /**
      * @brief Creates an image view for a GPU image.
      *
-     * Image views define how shaders access image data.
+     * Image views define how shaders access image data. Several views can be
+     * created over the same image to expose it in different ways.
+     *
+     * @param viewDesc  Image to view, how to interpret it, and which mip levels and array layers it covers.
+     *
+     * @return The created image view.
      */
-    vk::raii::ImageView CreateImageView(vk::Image const& image, vk::Format format, vk::ImageAspectFlags aspectFlags, uint32_t mipLevels);
+    vk::raii::ImageView CreateImageView(const ImageViewDescription& viewDesc);
 
 
     // ----------------------------------------------
