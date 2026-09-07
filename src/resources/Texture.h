@@ -13,9 +13,9 @@ class VulkanContext;
  * @brief GPU texture resource.
  *
  * Manages the full lifecycle of a Vulkan texture: loading pixel data (from a
- * KTX2 file, a JPG/PNG via stb_image, or a procedural 1x1 solid color), uploading
- * it to GPU memory via a staging buffer, and exposing the resulting image, image
- * view, and sampler for use in descriptor sets.
+ * KTX2 file, a JPG/PNG or Radiance HDR via stb_image, or a procedural 1x1 solid
+ * color), uploading it to GPU memory via a staging buffer, and exposing the
+ * resulting image, image view, and sampler for use in descriptor sets.
  *
  * Inherits from Resource, so Load() / Unload() follow the standard resource
  * lifecycle. Requires a valid VulkanContext for all GPU operations.
@@ -34,12 +34,13 @@ public:
     /**
      * @brief Constructs a Texture backed by a file on disk.
      *
-     * Load() resolves the file from the resource ID: it tries assets/<id>.ktx2
-     * first, then falls back to assets/<id>.jpg / .png via stb_image.
+     * Load() resolves the file from the resource ID: it tries assets/<id>.ktx2 first, 
+     * then falls back to assets/<id>.jpg / .png / .hdr via stb_image.
      *
      * @param context    The Vulkan context used for all GPU resource operations.
      * @param id         Unique resource identifier, used to resolve the file path (without extension).
-     * @param colorSpace How to interpret JPG/PNG pixel data (ignored for KTX2, which carries its own format).
+     * @param colorSpace How to interpret JPG/PNG pixel data (ignored for KTX2, which carries its own
+     *                   format, and for HDR, which is always linear radiance).
      *                   sRGB for albedo/emissive, Linear for normal/metallicRoughness/occlusion.
      */
     Texture(VulkanContext& context, const std::string& id, ColorSpace colorSpace = ColorSpace::sRGB);
@@ -78,8 +79,8 @@ public:
      *
      * Procedural textures (built via the solid-color constructor) skip the
      * filesystem entirely and go straight to LoadSolidColor(). File-backed
-     * textures try assets/<id>.ktx2, then assets/<id>.jpg / .png, in that order;
-     * throws if neither exists.
+     * textures try assets/<id>.ktx2, then assets/<id>.jpg / .png, then
+     * assets/<id>.hdr, in that order; throws if none exists.
      *
      * @return True if all GPU resources were created successfully.
      */
@@ -147,6 +148,18 @@ private:
      * @param filePath  Path to the .jpg / .png file.
      */
     void LoadImageDataSTB(const std::string& filePath);
+
+    /**
+     * @brief Loads Radiance HDR pixel data via stb_image and copies it into a staging buffer.
+     *
+     * Always decodes as 4 float32 channels (STBI_rgb_alpha), so a single mip level
+     * and 16 bytes per pixel.
+     *
+     * m_colorSpace is not consulted here: Radiance HDR always stores linear radiance.
+     *
+     * @param filePath  Path to the .hdr file.
+     */
+    void LoadImageDataHDR(const std::string& filePath);
 
     /**
      * @brief Builds a procedural 1x1 image from m_solidColor. No file is read.

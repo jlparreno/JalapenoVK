@@ -54,6 +54,14 @@ bool Texture::Load()
         }
     }
 
+    // HDRI case
+    const std::string hdrPath = "assets/" + GetId() + ".hdr";
+    if (std::filesystem::exists(hdrPath))
+    {
+        LoadImageDataHDR(hdrPath);
+        return Resource::Load();
+    }
+
     throw std::runtime_error("Texture not found for id: " + GetId());
 }
 
@@ -167,6 +175,44 @@ void Texture::LoadImageDataSTB(const std::string& filePath)
             m_format = vk::Format::eR8G8B8A8Srgb;
             break;
     }
+
+    CreateGPUResources(stagingBuffer);
+
+    // Cleanup STB resources
+    stbi_image_free(pixels);
+}
+
+void Texture::LoadImageDataHDR(const std::string& filePath)
+{
+    // Load STB texture
+    int width = 0; 
+    int height = 0;
+    int channels = 0;
+    float* pixels = stbi_loadf(filePath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+    if (!pixels)
+    {
+        throw std::runtime_error("Failed to load HDR texture image: " + filePath);
+    }
+
+    // Get texture dimensions and data. STBI_rgb_alpha forces 4 output channels regardless of
+    // the source file's own channel count, which is what `channels` reports here - use 4, not `channels`.
+    m_width = width;
+    m_height = height;
+    size_t imageSize = static_cast<size_t>(width) * static_cast<size_t>(height) * 4 * sizeof(float);  // HDR, 16 bytes per pixel
+
+    // Create staging buffer and memory
+    auto [stagingBuffer, stagingBufferMemory] = m_context.CreateBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    // Copy image data to staging buffer
+    void* data = stagingBufferMemory.mapMemory(0, imageSize);
+    memcpy(data, pixels, imageSize);
+    stagingBufferMemory.unmapMemory();
+
+    // Mipmap levels
+    m_mipLevels = 1;
+
+    // HDR format. Matches the 4 x float32 layout stb just produced, so the staging copy above is a straight memcpy. 
+    m_format = vk::Format::eR32G32B32A32Sfloat;
 
     CreateGPUResources(stagingBuffer);
 

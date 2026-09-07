@@ -93,8 +93,9 @@ class JalapenoVK
 		// the returned handles are used only to validate that the load succeeded.
 		auto mesh	 = m_resourceManager->LoadResource<Mesh>(*m_context, "DamagedHelmet/glTF/DamagedHelmet", *m_resourceManager, *m_pbrMaterialLayout);
 		auto shader  = m_resourceManager->LoadResource<Shader>(*m_context, "pbr.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
+		auto hdrTex  = m_resourceManager->LoadResource<Texture>(*m_context, "venice_sunset_4k", Texture::ColorSpace::Linear);
 
-		if (!mesh || !shader)
+		if (!mesh || !shader || !hdrTex)
 		{
 			throw std::runtime_error("Failed to load required resources");
 		}
