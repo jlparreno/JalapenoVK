@@ -18,6 +18,7 @@ Renderer::Renderer(VulkanContext& context, ResourceManager& resourceManager, Sce
     m_scene(scene),
     m_resourceManager(resourceManager),
     m_swapchain(context, window),
+    m_renderTarget(context, m_swapchain.GetFormat(), m_swapchain.GetExtent()),
     m_pbrMaterialLayout(pbrMaterialLayout)
 {
     CreateCommandBuffers();
@@ -130,11 +131,9 @@ void Renderer::HandleSwapchainRecreation()
     m_swapchain.Recreate();
 
     const vk::Extent2D extent = m_swapchain.GetExtent();
-
-    if (m_geometryPass)
-    {
-        m_geometryPass->OnResize(extent);
-    }
+    
+    // Resize render target
+    m_renderTarget.OnResize(extent);
 
     // Update the active camera's aspect ratio so the projection matches the new surface.
     if (m_scene.GetActiveCamera())
@@ -150,8 +149,7 @@ void Renderer::SetupRenderPasses()
 {
     GeometryPass::CreateInfo info
     {
-        .colorFormat = m_swapchain.GetFormat(),
-        .extent = m_swapchain.GetExtent(),
+        .renderTarget = &m_renderTarget,
         .shader = m_resourceManager.GetResource<Shader>("pbr.slang"),
         .materialLayout = m_pbrMaterialLayout
     };

@@ -2,6 +2,7 @@
 
 #include "core/VulkanIncludes.h"
 #include "render/Swapchain.h"
+#include "render/RenderTarget.h"
 #include "render/passes/RenderPassManager.h"
 #include "resources/ResourceManager.h"
 #include "scene/CameraComponent.h"
@@ -22,15 +23,15 @@ class GeometryPass;
 /**
  * @brief High-level per-frame orchestrator that drives acquire/render/present.
  *
- * Renderer owns the swapchain, the render pass manager, and the per-frame
- * command buffers. Each frame it acquires a swapchain image, records the
- * ordered pass sequence built by the RenderPassManager, submits the command
- * buffer, and presents the result. Scene state is owned externally by a
- * Scene instance, passed in by reference.
+ * Renderer owns the swapchain, the render target the passes draw into, the
+ * render pass manager, and the per-frame command buffers. Each frame it
+ * acquires a swapchain image, records the ordered pass sequence built by the
+ * RenderPassManager, submits the command buffer, and presents the result.
+ * Scene state is owned externally by a Scene instance, passed in by reference.
  *
  * When the surface becomes incompatible with the swapchain (window resize),
- * the Renderer coordinates a full swapchain recreation and propagates the
- * new extent to every pass that owns size-dependent resources.
+ * the Renderer coordinates a full swapchain recreation and resizes the render
+ * target to match, so the passes never deal with size changes themselves.
  */
 class Renderer
 {
@@ -131,7 +132,7 @@ private:
     void SubmitCommandBuffer(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex);
 
     /**
-     * @brief Recreates the swapchain and propagates the new extent to size-dependent passes.
+     * @brief Recreates the swapchain and resizes the render target to match.
      *
      * Called after eErrorOutOfDateKHR or a framebuffer resize. Waits for the
      * device to become idle before rebuilding the swapchain to avoid touching
@@ -147,10 +148,11 @@ private:
     VulkanContext&                          m_context;                          // Vulkan backend used for GPU allocations. Not owned by this class.
     GLFWwindow*                             m_window;                           // Native GLFW window providing the presentation surface. Not owned by this class.
 
-    Scene&                                  m_scene;
+    Scene&                                  m_scene;                            // Scene supplying the entities, active camera, and active light to render. Not owned by this class.
     ResourceManager&                        m_resourceManager;                  // Resource registry used to resolve textures, meshes, and shaders. Not owned by this class.
-    RenderPassManager                       m_renderPassManager;                // Owned manager that orders and executes the pass sequence each frame.
     Swapchain                               m_swapchain;                        // Owned swapchain and its per-frame synchronization primitives.
+    RenderTarget                            m_renderTarget;                     // Owned MSAA color + depth attachments every pass renders into.
+    RenderPassManager                       m_renderPassManager;                // Owned manager that orders and executes the pass sequence each frame.
 
     vk::DescriptorSetLayout                 m_pbrMaterialLayout;                // Shared PBR material set layout
 

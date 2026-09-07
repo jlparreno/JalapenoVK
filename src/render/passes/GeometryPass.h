@@ -7,20 +7,21 @@
 
 // Forward declarations
 class VulkanContext;
+class RenderTarget;
 class Shader;
 class Mesh;
 
 /**
- * @brief Geometry render pass: draws opaque geometry into an MSAA color target
- *        and resolves it into the current swapchain image.
+ * @brief Geometry render pass: draws opaque geometry into the shared MSAA color target and resolves it into the current swapchain image.
  *
- * Owns all resources that only make sense for this pass: the MSAA color and
- * depth attachments, the descriptor set layout, the pipeline layout, the
- * graphics pipeline, its descriptor pool + per-frame descriptor sets, and the
- * per-frame uniform buffers.
+ * Owns only what makes sense for this pass alone: the descriptor set layout, the
+ * pipeline layout, the graphics pipeline, its descriptor pool + per-frame
+ * descriptor sets, and the per-frame uniform buffers. The color and depth
+ * attachments it renders into belong to the RenderTarget it is handed, since
+ * those are shared with the other passes of the frame.
  *
  * Consumes from the outside only what depends on the current frame (target
- * swapchain view, mesh to draw) via SetFrameData().
+ * swapchain view, renderables to draw) via SetFrameData().
  */
 class GeometryPass : public RenderPass
 {
@@ -31,10 +32,9 @@ public:
      */
     struct CreateInfo
     {
-        vk::Format              colorFormat;    // Swapchain color format (used for pipeline + MSAA target).
-        vk::Extent2D            extent;         // Initial render target size.
-        Shader*                 shader;         // Shader resource used by this pass (borrowed)
-        vk::DescriptorSetLayout materialLayout; // Shared PBR material set layout
+        RenderTarget*           renderTarget;       // Shared color + depth attachments this pass renders into (borrowed)
+        Shader*                 shader;             // Shader resource used by this pass (borrowed)
+        vk::DescriptorSetLayout materialLayout;     // Shared PBR material set layout
     };
 
     /**
@@ -70,15 +70,6 @@ public:
      */
     void SetFrameData(const FrameData& data) { m_frame = data; }
 
-    /**
-     * @brief Recreate the pass-owned render targets at a new size.
-     *
-     * Called by the Renderer after the swapchain has been recreated. Assumes the
-     * caller has already ensured the GPU is idle (Swapchain::Recreate() calls
-     * waitIdle() internally, so this is safe to invoke right after).
-     */
-    void OnResize(vk::Extent2D newExtent);
-
 protected:
 
     // ----------------------------------------------
@@ -95,18 +86,45 @@ private:
     // INITIALIZATION HELPERS
     // ----------------------------------------------
 
-    void CreateAttachments();
+    /**
+     * @brief Creates the set-0 layout: a single uniform buffer binding, read from both the vertex and fragment stages.
+     */
     void CreateDescriptorSetLayout();
+
+    /**
+     * @brief Creates the pipeline layout and the graphics pipeline.
+     *
+     * The layout declares set 0 (m_layout) + set 1 (m_info.materialLayout) plus
+     * the model matrix push constant. The pipeline itself uses dynamic rendering
+     * (no VkRenderPass), takes its vertex input from Vertex, and reads sample
+     * count and attachment formats from the RenderTarget, so it stays compatible
+     * with the attachments it will render into.
+     */
     void CreatePipeline();
+
+    /**
+     * @brief Creates the descriptor pool backing the per-frame sets: one uniform buffer per frame in flight.
+     */
     void CreateDescriptorPool();
+
+    /**
+     * @brief Creates one host-visible SceneData buffer per frame in flight, mapped once and kept mapped.
+     */
     void CreateUniformBuffers();
+
+    /**
+     * @brief Allocates one set-0 descriptor set per frame in flight and points each at its own uniform buffer.
+     *
+     * Written once here: the binding never changes, only the buffer's contents do.
+     */
     void CreateDescriptorSets();
 
-    // Copies m_frame.{view,proj} into the persistently mapped UBO for the given frame slot.
+    /**
+     * @brief Copies the current frame's SceneData into the persistently mapped UBO for the given frame slot.
+     *
+     * @param frameIndex  Frame-in-flight slot to write into.
+     */
     void UpdateUniformBuffer(uint32_t frameIndex);
-
-    vk::SampleCountFlagBits QueryMaxUsableSampleCount() const;
-    vk::Format              FindDepthFormat() const;
 
     // ----------------------------------------------
     // MEMBERS
@@ -114,26 +132,15 @@ private:
 
     // Non-owned references / config
     VulkanContext&      m_context;                                              // Vulkan context used for all GPU operations. Not owned by this class.
-    CreateInfo          m_info;                                                 // Static configuration this pass was constructed with (shader, material layout, target format/extent).
+    CreateInfo          m_info;                                                 // Static configuration this pass was constructed with (render target, shader, material layout).
     FrameData           m_frame{};                                              // Most recent per-frame data pushed via SetFrameData(), consumed by Render().
 
-    // Derived at construction
-    vk::SampleCountFlagBits m_samples     { vk::SampleCountFlagBits::e1 };
-    vk::Format              m_depthFormat { vk::Format::eUndefined };
+    // Descriptor set layout for the scene UBO
+    vk::raii::DescriptorSetLayout        m_layout           { nullptr };        // Set-0 layout (per-frame UBO: view/proj/light/camera).
 
     // Pipeline stack
-    vk::raii::DescriptorSetLayout        m_layout           { nullptr };        // Set-0 layout (per-frame UBO: view/proj/light/camera).
     vk::raii::PipelineLayout             m_pipelineLayout   { nullptr };        // Set 0 (m_layout) + set 1 (m_info.materialLayout) + model push constants.
     vk::raii::Pipeline                   m_pipeline         { nullptr };        // Graphics pipeline. PBR at the moment.
-
-    // Attachments (MSAA color + depth). Rendered into, then color is resolved to swapchain.
-    vk::raii::Image                      m_colorImage  { nullptr };
-    vk::raii::DeviceMemory               m_colorMemory { nullptr };
-    vk::raii::ImageView                  m_colorView   { nullptr };
-
-    vk::raii::Image                      m_depthImage  { nullptr };
-    vk::raii::DeviceMemory               m_depthMemory { nullptr };
-    vk::raii::ImageView                  m_depthView   { nullptr };
 
     // Descriptor + per-frame data (one entry per frame-in-flight)
     vk::raii::DescriptorPool             m_descriptorPool { nullptr };

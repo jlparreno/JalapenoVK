@@ -2,21 +2,20 @@
 
 #include "core/DescriptorAllocator.h"
 #include "core/VulkanContext.h"
+#include "render/RenderTarget.h"
 #include "resources/Mesh.h"
 #include "resources/Shader.h"
 #include "materials/Material.h"
 
 #include <cstring>
 
-GeometryPass::GeometryPass(const std::string& name, VulkanContext& context, const CreateInfo& info)
-    : RenderPass(name), m_context(context), m_info(info)
+GeometryPass::GeometryPass(const std::string& name, VulkanContext& context, const CreateInfo& info) : 
+    RenderPass(name),
+    m_context(context), 
+    m_info(info)
 {
-    m_samples     = QueryMaxUsableSampleCount();
-    m_depthFormat = FindDepthFormat();
-
     CreateDescriptorSetLayout();
     CreatePipeline();
-    CreateAttachments();
     CreateDescriptorPool();
     CreateUniformBuffers();
     CreateDescriptorSets();
@@ -37,7 +36,7 @@ void GeometryPass::BeginPass(vk::raii::CommandBuffer& cmd, const FrameInfo&)
                .setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
                .setOldLayout(vk::ImageLayout::eUndefined)
                .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
-               .setImage(m_colorImage)
+               .setImage(m_info.renderTarget->GetColorImage())
                .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 
         vk::DependencyInfo depInfo;
@@ -55,7 +54,7 @@ void GeometryPass::BeginPass(vk::raii::CommandBuffer& cmd, const FrameInfo&)
                                 | vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
                .setOldLayout(vk::ImageLayout::eUndefined)
                .setNewLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-               .setImage(m_depthImage)
+               .setImage(m_info.renderTarget->GetDepthImage())
                .setSubresourceRange({ vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1 });
 
         vk::DependencyInfo depInfo;
@@ -65,7 +64,7 @@ void GeometryPass::BeginPass(vk::raii::CommandBuffer& cmd, const FrameInfo&)
 
     // Color attachment: MSAA image + resolve into current swapchain image
     vk::RenderingAttachmentInfo colorAttachment;
-    colorAttachment.setImageView(*m_colorView)
+    colorAttachment.setImageView(m_info.renderTarget->GetColorView())
                    .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
                    .setResolveMode(vk::ResolveModeFlagBits::eAverage)
                    .setResolveImageView(m_frame.swapchainImageView)
@@ -76,7 +75,7 @@ void GeometryPass::BeginPass(vk::raii::CommandBuffer& cmd, const FrameInfo&)
 
     // Depth attachment
     vk::RenderingAttachmentInfo depthAttachment;
-    depthAttachment.setImageView(*m_depthView)
+    depthAttachment.setImageView(m_info.renderTarget->GetDepthView())
                    .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
                    .setLoadOp(vk::AttachmentLoadOp::eClear)
                    .setStoreOp(vk::AttachmentStoreOp::eDontCare)
@@ -134,22 +133,6 @@ void GeometryPass::Render(vk::raii::CommandBuffer& cmd, const FrameInfo& frame)
 void GeometryPass::EndPass(vk::raii::CommandBuffer& cmd, const FrameInfo&)
 {
     cmd.endRendering();
-}
-
-void GeometryPass::OnResize(vk::Extent2D newExtent)
-{
-    // Release the current attachments first so their memory is freed before we allocate the new ones.
-    // Views must go before the images/memory they reference.
-    m_colorView   = nullptr;
-    m_colorMemory = nullptr;
-    m_colorImage  = nullptr;
-
-    m_depthView   = nullptr;
-    m_depthMemory = nullptr;
-    m_depthImage  = nullptr;
-
-    m_info.extent = newExtent;
-    CreateAttachments();
 }
 
 // -----------------------------------------------------------------------------
@@ -231,7 +214,7 @@ void GeometryPass::CreatePipeline()
 
     vk::PipelineMultisampleStateCreateInfo multisampling
     {
-        .rasterizationSamples = m_samples,
+        .rasterizationSamples = m_info.renderTarget->GetSamples(),
         .sampleShadingEnable  = vk::True,
         .minSampleShading     = 0.2f
     };
@@ -289,35 +272,16 @@ void GeometryPass::CreatePipeline()
                 .setLayout(m_pipelineLayout)
                 .setRenderPass(nullptr);
 
+    
+    const vk::Format colorFormat = m_info.renderTarget->GetColorFormat();
+    const vk::Format depthFormat = m_info.renderTarget->GetDepthFormat();
+
     auto& renderingInfo = chain.get<vk::PipelineRenderingCreateInfo>();
     renderingInfo.setColorAttachmentCount(1)
-                 .setColorAttachmentFormats(m_info.colorFormat)
-                 .setDepthAttachmentFormat(m_depthFormat);
+                 .setColorAttachmentFormats(colorFormat)
+                 .setDepthAttachmentFormat(depthFormat);
 
     m_pipeline = vk::raii::Pipeline(m_context.GetDevice(), nullptr, chain.get<vk::GraphicsPipelineCreateInfo>());
-}
-
-void GeometryPass::CreateAttachments()
-{
-    // MSAA color attachment
-    std::tie(m_colorImage, m_colorMemory) = m_context.CreateImage(
-        m_info.extent.width, m_info.extent.height, 1,
-        m_samples,
-        m_info.colorFormat,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eTransientAttachment | vk::ImageUsageFlagBits::eColorAttachment,
-        vk::MemoryPropertyFlagBits::eDeviceLocal);
-    m_colorView = m_context.CreateImageView(m_colorImage, m_info.colorFormat, vk::ImageAspectFlagBits::eColor, 1);
-
-    // Depth attachment
-    std::tie(m_depthImage, m_depthMemory) = m_context.CreateImage(
-        m_info.extent.width, m_info.extent.height, 1,
-        m_samples,
-        m_depthFormat,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eDepthStencilAttachment,
-        vk::MemoryPropertyFlagBits::eDeviceLocal);
-    m_depthView = m_context.CreateImageView(m_depthImage, m_depthFormat, vk::ImageAspectFlagBits::eDepth, 1);
 }
 
 void GeometryPass::CreateDescriptorPool()
@@ -390,29 +354,4 @@ void GeometryPass::UpdateUniformBuffer(uint32_t frameIndex)
     ubo.cameraPosition = glm::vec4(m_frame.cameraPosition, 0.0f);
 
     std::memcpy(m_uniformBuffers[frameIndex].mapped, &ubo, sizeof(ubo));
-}
-
-vk::SampleCountFlagBits GeometryPass::QueryMaxUsableSampleCount() const
-{
-    vk::PhysicalDeviceProperties props = m_context.GetPhysicalDevice().getProperties();
-
-    vk::SampleCountFlags counts = props.limits.framebufferColorSampleCounts
-                                & props.limits.framebufferDepthSampleCounts;
-
-    if (counts & vk::SampleCountFlagBits::e64) return vk::SampleCountFlagBits::e64;
-    if (counts & vk::SampleCountFlagBits::e32) return vk::SampleCountFlagBits::e32;
-    if (counts & vk::SampleCountFlagBits::e16) return vk::SampleCountFlagBits::e16;
-    if (counts & vk::SampleCountFlagBits::e8)  return vk::SampleCountFlagBits::e8;
-    if (counts & vk::SampleCountFlagBits::e4)  return vk::SampleCountFlagBits::e4;
-    if (counts & vk::SampleCountFlagBits::e2)  return vk::SampleCountFlagBits::e2;
-    return vk::SampleCountFlagBits::e1;
-}
-
-vk::Format GeometryPass::FindDepthFormat() const
-{
-    // Depth-only to keep aspect mask simple (no stencil aspect required in barriers/views).
-    return m_context.FindSupportedFormat(
-        { vk::Format::eD32Sfloat },
-        vk::ImageTiling::eOptimal,
-        vk::FormatFeatureFlagBits::eDepthStencilAttachment);
 }
