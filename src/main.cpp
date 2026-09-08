@@ -2,6 +2,7 @@
 #include "io/InputManager.h"
 #include "io/Window.h"
 #include "render/Renderer.h"
+#include "render/EnvironmentMap.h"
 #include "resources/Mesh.h"
 #include "resources/ResourceManager.h"
 #include "resources/Shader.h"
@@ -38,6 +39,7 @@ class JalapenoVK
 		InitInput();
 		InitVulkan();
 		InitResources();
+		InitEnvironment();
 		InitScene();
 		InitRenderer();
 		MainLoop();
@@ -53,6 +55,7 @@ class JalapenoVK
 	std::unique_ptr<Scene>				m_scene;			// Entities + active camera; content beyond the default camera is built externally in InitScene().
 	std::unique_ptr<InputManager>		m_inputManager;		// Drives the active camera controller; wired up in InitInput() / InitRenderer().
 	std::unique_ptr<ResourceManager>	m_resourceManager;	// Owns loaded textures/meshes/shaders; must be unloaded before m_context is destroyed (see Cleanup()).
+	std::unique_ptr<EnvironmentMap>		m_environmentMap;	// Environment cubemap generated at startup.
 
 	vk::raii::DescriptorSetLayout		m_pbrMaterialLayout{ nullptr };
 
@@ -91,14 +94,27 @@ class JalapenoVK
 
 		// Load the resources the current scene needs. Ownership stays in the ResourceManager;
 		// the returned handles are used only to validate that the load succeeded.
-		auto mesh	 = m_resourceManager->LoadResource<Mesh>(*m_context, "DamagedHelmet/glTF/DamagedHelmet", *m_resourceManager, *m_pbrMaterialLayout);
-		auto shader  = m_resourceManager->LoadResource<Shader>(*m_context, "pbr.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
-		auto hdrTex  = m_resourceManager->LoadResource<Texture>(*m_context, "venice_sunset_4k", Texture::ColorSpace::Linear);
+		auto mesh				= m_resourceManager->LoadResource<Mesh>(*m_context, "DamagedHelmet/glTF/DamagedHelmet", *m_resourceManager, *m_pbrMaterialLayout);
+		auto pbrShader			= m_resourceManager->LoadResource<Shader>(*m_context, "pbr.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
+		auto equirectCubeShader = m_resourceManager->LoadResource<Shader>(*m_context, "equirect_to_cube.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
+		auto hdrTex				= m_resourceManager->LoadResource<Texture>(*m_context, "venice_sunset_4k", Texture::ColorSpace::Linear);
 
-		if (!mesh || !shader || !hdrTex)
+		if (!mesh || !pbrShader || !equirectCubeShader || !hdrTex)
 		{
 			throw std::runtime_error("Failed to load required resources");
 		}
+	}
+
+	void InitEnvironment()
+	{
+		EnvironmentMap::CreateInfo environmentInfo{ m_resourceManager->GetResource<Texture>("venice_sunset_4k"), 
+													m_resourceManager->GetResource<Shader>("equirect_to_cube.slang") };
+
+		m_environmentMap = std::make_unique<EnvironmentMap>(*m_context, environmentInfo);
+
+		// The equirectangular source has done its job: its pixels now live in the cubemap.
+		// At 4096x2048 RGBA32F it is holding 128 MB of device memory, so release it here.
+		m_resourceManager->UnloadResource<Texture>("venice_sunset_4k");
 	}
 
 	void InitScene()
@@ -185,6 +201,7 @@ class JalapenoVK
 		// to be alive during their destructors.
 		m_resourceManager->UnloadAllResources();
 		m_renderer.reset();
+		m_environmentMap.reset();
 		m_pbrMaterialLayout = nullptr;
 
 		m_context.reset();
