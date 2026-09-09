@@ -1,6 +1,7 @@
 #include "render/passes/GeometryPass.h"
 
 #include "core/DescriptorAllocator.h"
+#include "core/PipelineBuilder.h"
 #include "core/VulkanContext.h"
 #include "render/RenderTarget.h"
 #include "resources/Mesh.h"
@@ -159,88 +160,6 @@ void GeometryPass::CreateDescriptorSetLayout()
 
 void GeometryPass::CreatePipeline()
 {
-    const vk::raii::ShaderModule& shaderModule = m_info.shader->GetShaderModule();
-
-    // Vertex + fragment stages (entry points defined in the Slang source)
-    vk::PipelineShaderStageCreateInfo vertStage
-    {
-        .stage = vk::ShaderStageFlagBits::eVertex,
-        .module = shaderModule,
-        .pName = "vertMain"
-    };
-    vk::PipelineShaderStageCreateInfo fragStage
-    {
-        .stage = vk::ShaderStageFlagBits::eFragment,
-        .module = shaderModule,
-        .pName = "fragMain"
-    };
-    vk::PipelineShaderStageCreateInfo shaderStages[] = { vertStage, fragStage };
-
-    // Vertex input matches the Vertex struct defined in RenderTypes.h
-    auto bindingDescription    = Vertex::getBindingDescription();
-    auto attributeDescriptions = Vertex::getAttributeDescriptions();
-    vk::PipelineVertexInputStateCreateInfo vertexInputInfo
-    {
-        .vertexBindingDescriptionCount   = 1,
-        .pVertexBindingDescriptions      = &bindingDescription,
-        .vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size()),
-        .pVertexAttributeDescriptions    = attributeDescriptions.data()
-    };
-
-    vk::PipelineDepthStencilStateCreateInfo depthStencil
-    {
-        .depthTestEnable       = vk::True,
-        .depthWriteEnable      = vk::True,
-        .depthCompareOp        = vk::CompareOp::eLess,
-        .depthBoundsTestEnable = vk::False,
-        .stencilTestEnable     = vk::False
-    };
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{ .topology = vk::PrimitiveTopology::eTriangleList };
-
-    // Viewport/scissor are dynamic — only counts required here
-    vk::PipelineViewportStateCreateInfo viewportState{ .viewportCount = 1, .scissorCount = 1 };
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer
-    {
-        .depthClampEnable        = vk::False,
-        .rasterizerDiscardEnable = vk::False,
-        .polygonMode             = vk::PolygonMode::eFill,
-        .cullMode                = vk::CullModeFlagBits::eNone,
-        .frontFace               = vk::FrontFace::eCounterClockwise,
-        .depthBiasEnable         = vk::False,
-        .lineWidth               = 1.0f
-    };
-
-    vk::PipelineMultisampleStateCreateInfo multisampling
-    {
-        .rasterizationSamples = m_info.renderTarget->GetSamples(),
-        .sampleShadingEnable  = vk::True,
-        .minSampleShading     = 0.2f
-    };
-
-    vk::PipelineColorBlendAttachmentState colorBlendAttachment
-    {
-        .blendEnable    = vk::False,
-        .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG
-                        | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA
-    };
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending
-    {
-        .logicOpEnable   = vk::False,
-        .logicOp         = vk::LogicOp::eCopy,
-        .attachmentCount = 1,
-        .pAttachments    = &colorBlendAttachment
-    };
-
-    std::vector<vk::DynamicState> dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
-    vk::PipelineDynamicStateCreateInfo dynamicState
-    {
-        .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
-        .pDynamicStates    = dynamicStates.data()
-    };
-
     vk::PushConstantRange pushConstantRange;
     pushConstantRange.setStageFlags(vk::ShaderStageFlagBits::eVertex)
                      .setOffset(0)
@@ -256,32 +175,15 @@ void GeometryPass::CreatePipeline()
     };
     m_pipelineLayout = vk::raii::PipelineLayout(m_context.GetDevice(), pipelineLayoutInfo);
 
-    // Dynamic rendering: no VkRenderPass, formats are declared here instead
-    vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> chain;
-
-    auto& pipelineInfo = chain.get<vk::GraphicsPipelineCreateInfo>();
-    pipelineInfo.setStages(shaderStages)
-                .setPVertexInputState(&vertexInputInfo)
-                .setPInputAssemblyState(&inputAssembly)
-                .setPViewportState(&viewportState)
-                .setPRasterizationState(&rasterizer)
-                .setPMultisampleState(&multisampling)
-                .setPDepthStencilState(&depthStencil)
-                .setPColorBlendState(&colorBlending)
-                .setPDynamicState(&dynamicState)
-                .setLayout(m_pipelineLayout)
-                .setRenderPass(nullptr);
-
-    
-    const vk::Format colorFormat = m_info.renderTarget->GetColorFormat();
-    const vk::Format depthFormat = m_info.renderTarget->GetDepthFormat();
-
-    auto& renderingInfo = chain.get<vk::PipelineRenderingCreateInfo>();
-    renderingInfo.setColorAttachmentCount(1)
-                 .setColorAttachmentFormats(colorFormat)
-                 .setDepthAttachmentFormat(depthFormat);
-
-    m_pipeline = vk::raii::Pipeline(m_context.GetDevice(), nullptr, chain.get<vk::GraphicsPipelineCreateInfo>());
+    m_pipeline = PipelineBuilder(m_context)
+        .SetShader(*m_info.shader)
+        .SetLayout(*m_pipelineLayout)
+        .SetColorFormat(m_info.renderTarget->GetColorFormat())
+        .SetDepthFormat(m_info.renderTarget->GetDepthFormat())
+        .SetDepthTest(true, vk::CompareOp::eLess)
+        .SetSamples(m_info.renderTarget->GetSamples(), 0.2f)
+        .SetVertexInput(Vertex::getBindingDescription(), Vertex::getAttributeDescriptions())
+        .Build();
 }
 
 void GeometryPass::CreateDescriptorPool()

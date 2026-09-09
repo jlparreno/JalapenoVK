@@ -1,6 +1,7 @@
 #include "render/EnvironmentMap.h"
 
 #include "core/DescriptorAllocator.h"
+#include "core/PipelineBuilder.h"
 #include "core/VulkanContext.h"
 #include "core/VulkanTypes.h"
 #include "resources/Shader.h"
@@ -227,72 +228,6 @@ void EnvironmentMap::ProjectEquirectToCube(const Texture& equirect, const Shader
 
 std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> EnvironmentMap::CreateEquirectToCubePipeline(const Shader& shader, vk::DescriptorSetLayout setLayout)
 {
-    const vk::raii::ShaderModule& shaderModule = shader.GetShaderModule();
-
-    // Vertex + fragment stages
-    vk::PipelineShaderStageCreateInfo vertStage
-    {
-        .stage  = vk::ShaderStageFlagBits::eVertex,
-        .module = shaderModule,
-        .pName  = "vertMain"
-    };
-    vk::PipelineShaderStageCreateInfo fragStage
-    {
-        .stage  = vk::ShaderStageFlagBits::eFragment,
-        .module = shaderModule,
-        .pName  = "fragMain"
-    };
-    vk::PipelineShaderStageCreateInfo shaderStages[] = { vertStage, fragStage };
-
-    // Empty on purpose: there is no vertex buffer and no attribute to describe.
-    vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{ .topology = vk::PrimitiveTopology::eTriangleList };
-
-    // Viewport/scissor are dynamic, only counts required here
-    vk::PipelineViewportStateCreateInfo viewportState{ .viewportCount = 1, .scissorCount = 1 };
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer
-    {
-        .depthClampEnable        = vk::False,
-        .rasterizerDiscardEnable = vk::False,
-        .polygonMode             = vk::PolygonMode::eFill,
-        .cullMode                = vk::CullModeFlagBits::eNone,
-        .frontFace               = vk::FrontFace::eCounterClockwise,
-        .depthBiasEnable         = vk::False,
-        .lineWidth               = 1.0f
-    };
-
-    // The cube faces are single-sampled.
-    vk::PipelineMultisampleStateCreateInfo multisampling
-    {
-        .rasterizationSamples = vk::SampleCountFlagBits::e1,
-        .sampleShadingEnable  = vk::False
-    };
-
-    // No blending
-    vk::PipelineColorBlendAttachmentState colorBlendAttachment
-    {
-        .blendEnable    = vk::False,
-        .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG
-                        | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA
-    };
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending
-    {
-        .logicOpEnable   = vk::False,
-        .logicOp         = vk::LogicOp::eCopy,
-        .attachmentCount = 1,
-        .pAttachments    = &colorBlendAttachment
-    };
-
-    std::vector<vk::DynamicState> dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
-    vk::PipelineDynamicStateCreateInfo dynamicState
-    {
-        .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
-        .pDynamicStates    = dynamicStates.data()
-    };
-
     // One CubeFaceOrientation, not the whole table: each draw pushes the face it is painting.
     vk::PushConstantRange pushConstantRange;
     pushConstantRange.setStageFlags(vk::ShaderStageFlagBits::eFragment)
@@ -308,29 +243,12 @@ std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> EnvironmentMap::CreateEq
     };
     vk::raii::PipelineLayout pipelineLayout(m_context.GetDevice(), pipelineLayoutInfo);
 
-    // Dynamic rendering: no VkRenderPass, formats are declared here instead.
-    // No depth format either, since the faces are rendered without a depth attachment.
-    vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> chain;
-
-    auto& pipelineInfo = chain.get<vk::GraphicsPipelineCreateInfo>();
-    pipelineInfo.setStages(shaderStages)
-                .setPVertexInputState(&vertexInputInfo)
-                .setPInputAssemblyState(&inputAssembly)
-                .setPViewportState(&viewportState)
-                .setPRasterizationState(&rasterizer)
-                .setPMultisampleState(&multisampling)
-                .setPColorBlendState(&colorBlending)
-                .setPDynamicState(&dynamicState)
-                .setLayout(pipelineLayout)
-                .setRenderPass(nullptr);
-
-    const vk::Format colorFormat = k_environmentFormat;
-
-    auto& pipelineRenderingInfo = chain.get<vk::PipelineRenderingCreateInfo>();
-    pipelineRenderingInfo.setColorAttachmentCount(1)
-                         .setColorAttachmentFormats(colorFormat);
-
-    vk::raii::Pipeline pipeline(m_context.GetDevice(), nullptr, chain.get<vk::GraphicsPipelineCreateInfo>());
+    // Configure and create pipeline
+    auto pipeline = PipelineBuilder(m_context)
+        .SetShader(shader)
+        .SetLayout(*pipelineLayout)
+        .SetColorFormat(k_environmentFormat)
+        .Build();
 
     return { std::move(pipelineLayout), std::move(pipeline) };
 }
