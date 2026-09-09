@@ -3,6 +3,7 @@
 #include "core/VulkanContext.h"
 #include "render/RenderTypes.h"
 #include "render/passes/GeometryPass.h"
+#include "render/passes/SkyboxPass.h"
 #include "resources/Mesh.h"
 #include "resources/Shader.h"
 #include "resources/Texture.h"
@@ -12,14 +13,15 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-Renderer::Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window, vk::DescriptorSetLayout pbrMaterialLayout) :
+Renderer::Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window, vk::DescriptorSetLayout pbrMaterialLayout, EnvironmentMap& environmentMap) :
     m_context(context),
     m_window(window),
     m_scene(scene),
     m_resourceManager(resourceManager),
     m_swapchain(context, window),
     m_renderTarget(context, m_swapchain.GetFormat(), m_swapchain.GetExtent()),
-    m_pbrMaterialLayout(pbrMaterialLayout)
+    m_pbrMaterialLayout(pbrMaterialLayout),
+    m_environmentMap(environmentMap)
 {
     CreateCommandBuffers();
     SetupRenderPasses();
@@ -59,15 +61,29 @@ void Renderer::Render()
         }
     }
 
+    // View / projection from the active camera
+    auto* camera = m_scene.GetActiveCamera() ? m_scene.GetActiveCamera()->GetComponent<CameraComponent>() : nullptr;
+    glm::mat4 view = camera ? camera->GetViewMatrix() : glm::mat4(1.0f);
+    glm::mat4 proj = camera ? camera->GetProjectionMatrix() : glm::mat4(1.0f);
+    proj[1][1] *= -1.0f; // GLM assumes OpenGL NDC (Y up); Vulkan is Y down.
+
+    // Feed the skyboxPass pass with the transient state it needs for this frame
+    if (m_skyboxPass)
+    {
+        glm::mat4 invViewProj = glm::inverse(proj * glm::mat4(glm::mat3(view))); // Remove translation from view to keep the skybox fixed in position
+
+        SkyboxPass::FrameData frameData
+        {
+            .extent = m_swapchain.GetExtent(),
+            .invViewProj = invViewProj
+        };
+        m_skyboxPass->SetFrameData(frameData);
+    }
+
     // Feed the geometry pass with the transient state it needs for this frame
     if (m_geometryPass)
     {
-        // View / projection from the active camera
-        auto* camera = m_scene.GetActiveCamera() ? m_scene.GetActiveCamera()->GetComponent<CameraComponent>() : nullptr;
-        glm::mat4 view = camera ? camera->GetViewMatrix()       : glm::mat4(1.0f);
-        glm::mat4 proj = camera ? camera->GetProjectionMatrix() : glm::mat4(1.0f);
-        proj[1][1] *= -1.0f; // GLM assumes OpenGL NDC (Y up); Vulkan is Y down.
-        glm::vec3 cameraPos = camera ? camera->GetPosition()    : glm::vec3(0.0f);
+        glm::vec3 cameraPos = camera ? camera->GetPosition() : glm::vec3(0.0f);
 
         // Active light
         auto* light = m_scene.GetActiveLight() ? m_scene.GetActiveLight()->GetComponent<LightComponent>() : nullptr;
@@ -147,14 +163,26 @@ void Renderer::HandleSwapchainRecreation()
 
 void Renderer::SetupRenderPasses()
 {
-    GeometryPass::CreateInfo info
+    // Add SkyboxPass
+    SkyboxPass::CreateInfo skyboxInfo
+    {
+        .renderTarget = &m_renderTarget,
+        .shader = m_resourceManager.GetResource<Shader>("skybox.slang"),
+        .environmentMap = &m_environmentMap
+    };
+
+    m_skyboxPass = m_renderPassManager.AddRenderPass<SkyboxPass>("SkyboxPass", m_context, skyboxInfo);
+
+    // Add GeometryPass
+    GeometryPass::CreateInfo geometryInfo
     {
         .renderTarget = &m_renderTarget,
         .shader = m_resourceManager.GetResource<Shader>("pbr.slang"),
         .materialLayout = m_pbrMaterialLayout
     };
 
-    m_geometryPass = m_renderPassManager.AddRenderPass<GeometryPass>("GeometryPass", m_context, info);
+    m_geometryPass = m_renderPassManager.AddRenderPass<GeometryPass>("GeometryPass", m_context, geometryInfo);
+    m_geometryPass->AddDependency("SkyboxPass");
 }
 
 void Renderer::CreateCommandBuffers()

@@ -19,6 +19,8 @@
 // Forward declarations
 class VulkanContext;
 class GeometryPass;
+class SkyboxPass;
+class EnvironmentMap;
 
 /**
  * @brief High-level per-frame orchestrator that drives acquire/render/present.
@@ -48,8 +50,9 @@ public:
      * @param scene             Main scene that contains all the entities.
      * @param window            GLFW window providing the presentation surface.
      * @param pbrMaterialLayout Shared PBR material descriptor set layout (set 1), created once in main.cpp, passed to GeometryPass's pipeline layout.
+     * @param environmentMap    Environment cubemap built at startup, sampled by SkyboxPass. Taken by reference because the passes are built here, in the constructor.
      */
-    Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window, vk::DescriptorSetLayout pbrMaterialLayout);
+    Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window, vk::DescriptorSetLayout pbrMaterialLayout, EnvironmentMap& environmentMap);
 
     /**
      * @brief Destructor. Owned vk::raii handles release themselves.
@@ -150,6 +153,7 @@ private:
 
     Scene&                                  m_scene;                            // Scene supplying the entities, active camera, and active light to render. Not owned by this class.
     ResourceManager&                        m_resourceManager;                  // Resource registry used to resolve textures, meshes, and shaders. Not owned by this class.
+    EnvironmentMap&                         m_environmentMap;                   // Environment cubemap handed to SkyboxPass. Not owned by this class.
     Swapchain                               m_swapchain;                        // Owned swapchain and its per-frame synchronization primitives.
     RenderTarget                            m_renderTarget;                     // Owned MSAA color + depth attachments every pass renders into.
     RenderPassManager                       m_renderPassManager;                // Owned manager that orders and executes the pass sequence each frame.
@@ -160,5 +164,6 @@ private:
 
     bool                                    m_framebufferResized{ false };      // Flag to trigger swapchain recreation on the next frame.
 
-    GeometryPass*                           m_geometryPass{ nullptr };          // Non-owning pointer, so Renderer can push per-frame data.
+    SkyboxPass*                             m_skyboxPass        { nullptr };    // Non-owning pointer, so Renderer can push per-frame data.
+    GeometryPass*                           m_geometryPass      { nullptr };    // Non-owning pointer, so Renderer can push per-frame data.
 };

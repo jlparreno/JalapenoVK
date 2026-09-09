@@ -1,4 +1,6 @@
 
+#include "include/tonemap.slang"
+
 static const float PI = 3.14159265359;
 
 struct VSInput 
@@ -148,5 +150,5 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET
     float3 ambient = 0.03 * albedo * ao;
     float3 color = ambient + Lo + emissive;
 
-    return float4(color, 1.0);
+    return float4(TonemapACES(color * k_exposure), 1.0);
 }

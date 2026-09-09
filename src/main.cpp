@@ -59,8 +59,6 @@ class JalapenoVK
 
 	vk::raii::DescriptorSetLayout		m_pbrMaterialLayout{ nullptr };
 
-	TransformComponent*					m_modelTransform{ nullptr }; // Non-owning, cached for the demo Y-spin. Not owned by this class.
-
 	void InitWindow()
 	{
 		m_window = std::make_unique<Window>(TITLE, WIDTH, HEIGHT);
@@ -95,11 +93,12 @@ class JalapenoVK
 		// Load the resources the current scene needs. Ownership stays in the ResourceManager;
 		// the returned handles are used only to validate that the load succeeded.
 		auto mesh				= m_resourceManager->LoadResource<Mesh>(*m_context, "DamagedHelmet/glTF/DamagedHelmet", *m_resourceManager, *m_pbrMaterialLayout);
+		auto hdrTex				= m_resourceManager->LoadResource<Texture>(*m_context, "venice_sunset_4k", Texture::ColorSpace::Linear);
 		auto pbrShader			= m_resourceManager->LoadResource<Shader>(*m_context, "pbr.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
 		auto equirectCubeShader = m_resourceManager->LoadResource<Shader>(*m_context, "equirect_to_cube.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
-		auto hdrTex				= m_resourceManager->LoadResource<Texture>(*m_context, "venice_sunset_4k", Texture::ColorSpace::Linear);
+		auto skyboxShader		= m_resourceManager->LoadResource<Shader>(*m_context, "skybox.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
 
-		if (!mesh || !pbrShader || !equirectCubeShader || !hdrTex)
+		if (!mesh || !pbrShader || !equirectCubeShader || !skyboxShader || !hdrTex)
 		{
 			throw std::runtime_error("Failed to load required resources");
 		}
@@ -139,14 +138,13 @@ class JalapenoVK
 		modelTransform->SetPosition({ 0.0f, 0.0f, 0.0f });
 		modelTransform->SetRotation({ glm::radians(90.0f), 0.0f, 0.0f });
 		modelTransform->SetScale({ 1.0f, 1.0f, 1.0f });
-		m_modelTransform = modelTransform;
 
 		model->AddComponent<MeshComponent>()->SetMesh(m_resourceManager->GetResource<Mesh>("DamagedHelmet/glTF/DamagedHelmet"));
 	}
 
 	void InitRenderer()
 	{
-		m_renderer = std::make_unique<Renderer>(*m_context, *m_resourceManager, *m_scene, m_window->GetHandle(), *m_pbrMaterialLayout);
+		m_renderer = std::make_unique<Renderer>(*m_context, *m_resourceManager, *m_scene, m_window->GetHandle(), *m_pbrMaterialLayout, *m_environmentMap);
 
 		// Cache a non-owning handle to the camera controller so the input layer can drive it.
 		if (Entity* camera = m_scene->GetActiveCamera())
@@ -176,14 +174,6 @@ class JalapenoVK
 			m_window->DisplayFrameTimes(deltaTime.count());
 
 			m_inputManager->ProcessInput();
-
-			// Rotate model 45 degrees per second, just for demo
-			if (m_modelTransform)
-			{
-				glm::vec3 rotation = m_modelTransform->GetRotation();
-				rotation.y += glm::radians(45.0f) * deltaTime.count();
-				m_modelTransform->SetRotation(rotation);
-			}
 
 			m_scene->Update(deltaTime);
 			m_renderer->Render();

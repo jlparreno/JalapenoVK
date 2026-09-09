@@ -42,7 +42,7 @@ void RenderTarget::CreateAttachments()
         .width = m_extent.width,
         .height = m_extent.height,
         .format = m_colorFormat,
-        .usage = vk::ImageUsageFlagBits::eTransientAttachment | vk::ImageUsageFlagBits::eColorAttachment,
+        .usage = vk::ImageUsageFlagBits::eColorAttachment,
         .samples = m_samples,
     };
     

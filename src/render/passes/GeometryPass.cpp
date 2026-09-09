@@ -26,19 +26,21 @@ GeometryPass::GeometryPass(const std::string& name, VulkanContext& context, cons
 // Pass execution
 // -----------------------------------------------------------------------------
 
-void GeometryPass::BeginPass(vk::raii::CommandBuffer& cmd, const FrameInfo&)
+void GeometryPass::BeginPass(vk::raii::CommandBuffer& cmd, const FrameInfo& frame)
 {
-    // Transition MSAA color attachment: Undefined -> ColorAttachmentOptimal
+    // The skybox already wrote this attachment, make those writes visible before we load them.
+    // Two separate rendering blocks touching the same image have no implicit dependency
+    // with dynamic rendering, and the load is a read, hence the read bit on the destination.
     {
         vk::ImageMemoryBarrier2 barrier;
-        barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTopOfPipe)
-               .setSrcAccessMask(vk::AccessFlagBits2::eNone)
-               .setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-               .setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
-               .setOldLayout(vk::ImageLayout::eUndefined)
-               .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
-               .setImage(m_info.renderTarget->GetColorImage())
-               .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+        barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
+            .setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
+            .setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite)
+            .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
+            .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
+            .setImage(m_info.renderTarget->GetColorImage())
+            .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 
         vk::DependencyInfo depInfo;
         depInfo.setImageMemoryBarriers(barrier);
@@ -70,9 +72,8 @@ void GeometryPass::BeginPass(vk::raii::CommandBuffer& cmd, const FrameInfo&)
                    .setResolveMode(vk::ResolveModeFlagBits::eAverage)
                    .setResolveImageView(m_frame.swapchainImageView)
                    .setResolveImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-                   .setLoadOp(vk::AttachmentLoadOp::eClear)
-                   .setStoreOp(vk::AttachmentStoreOp::eStore)
-                   .setClearValue(vk::ClearColorValue(std::array<float, 4>{ 0.0106f, 0.0489f, 0.0731f, 1.0f }));
+                   .setLoadOp(vk::AttachmentLoadOp::eLoad)
+                   .setStoreOp(vk::AttachmentStoreOp::eStore);
 
     // Depth attachment
     vk::RenderingAttachmentInfo depthAttachment;
@@ -131,7 +132,7 @@ void GeometryPass::Render(vk::raii::CommandBuffer& cmd, const FrameInfo& frame)
     }
 }
 
-void GeometryPass::EndPass(vk::raii::CommandBuffer& cmd, const FrameInfo&)
+void GeometryPass::EndPass(vk::raii::CommandBuffer& cmd, const FrameInfo& frame)
 {
     cmd.endRendering();
 }

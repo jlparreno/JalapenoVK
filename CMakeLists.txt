@@ -68,6 +68,11 @@ find_program(SLANGC_EXECUTABLE slangc HINTS "$ENV{VULKAN_SDK}/bin" REQUIRED)
 
 file(GLOB SLANG_SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.slang")
 
+# Shared code #included by the shaders above. In its own subfolder on purpose: the glob
+# is non-recursive, so anything next to the shaders would be compiled as a standalone one.
+# Listed as a dependency of every shader, otherwise editing an include rebuilds nothing.
+file(GLOB SLANG_SHADER_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/include/*.slang")
+
 if(SLANG_SHADER_SOURCES)
     set(SHADERS_DIR "${OUTPUT_DIR}/shaders")
     foreach(SHADER ${SLANG_SHADER_SOURCES})
@@ -80,7 +85,7 @@ if(SLANG_SHADER_SOURCES)
                     -emit-spirv-directly
                     -fvk-use-entrypoint-name
                     -o "${SHADERS_DIR}/${SHADER_NAME}.spv"
-            DEPENDS "${SHADER}"
+            DEPENDS "${SHADER}" ${SLANG_SHADER_INCLUDES}
             COMMENT "Compiling ${SHADER_NAME}"
             VERBATIM
         )
