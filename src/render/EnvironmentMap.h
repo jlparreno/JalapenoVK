@@ -2,65 +2,41 @@
 
 #include "core/VulkanIncludes.h"
 
-#include <glm/vec4.hpp>
-
-#include <array>
 #include <cstdint>
-#include <utility>
 
 // Forward declarations
 class VulkanContext;
+class ResourceManager;
 class Texture;
 class Shader;
 
 /**
- * @brief Environment lighting built at startup from a single equirectangular HDR image.
+ * @brief Environment cube built at startup from a single equirectangular HDR image.
  *
- * Owns the cubemap the skybox draws and the IBL steps consume. Nothing here is
- * read from disk as a cubemap: the cube is rendered, one face per draw, by
- * projecting the equirectangular source onto each of its six faces.
+ * Owns the environment cube the skybox draws: the equirectangular source is projected 
+ * onto it one face per draw, and its mip chain is then generated.
  *
- * Everything the projection needs (descriptor set, pipeline, per-face image views)
- * is local to the generation and gone by the time the constructor returns, so the
- * only GPU state that outlives startup is the cube itself and its sampler.
+ * Everything a generation step needs (descriptor set, pipeline, per-face image views)
+ * is local to that step and gone by the time the constructor returns. What outlives
+ * startup is the cube and its sampler.
  */
 class EnvironmentMap
 {
 public:
 
     /**
-     * @brief Inputs consumed during construction.
-     */
-    struct CreateInfo
-    {
-        const Texture*  equirect;   // Equirectangular HDR source projected onto the cube.
-        const Shader*   shader;     // Shader performing the equirect to cube projection.
-    };
-
-    /**
-     * @brief Orientation of one cube face, in world space.
+     * @brief Creates the environment cube from a single equirectangular image.
      *
-     * A texel at normalized device coordinates (u, v) within the face looks along
-     * forward + u * right + v * up. Pushed to the fragment stage as a push constant,
-     * one face per draw.
-     */
-    struct CubeFaceOrientation
-    {
-        glm::vec4 right;
-        glm::vec4 up;
-        glm::vec4 forward;
-    };
-
-    /**
-     * @brief Creates the cubemap and renders the equirectangular source into its six faces.
+     * The generation runs to completion before this returns: the equirectangular
+     * source is projected onto the environment cube, its mip chain is filled, and
+     * the whole chain is left in eShaderReadOnlyOptimal ready to be sampled. The
+     * source texture is not referenced afterwards, so the caller is free to unload it.
      *
-     * The generation runs to completion before this returns: the cube is left in
-     * eShaderReadOnlyOptimal and is ready to be sampled.
-     *
-     * @param context  The Vulkan context used for all GPU resource operations.
-     * @param info     Equirectangular source and projection shader.
+     * @param context          The Vulkan context used for all GPU resource operations.
+     * @param resourceManager  Manager to load the shader for this pass.
+     * @param equirect         Equirectangular HDR source projected onto the cube.
      */
-    EnvironmentMap(VulkanContext& context, const CreateInfo& info);
+    EnvironmentMap(VulkanContext& context, ResourceManager& resourceManager, const Texture& equirect);
 
     /**
      * @brief Destructor. Owned vk::raii handles release themselves.
@@ -102,11 +78,11 @@ private:
     void CreateEnvironmentCube();
 
     /**
-     * @brief Creates the sampler used to read the environment cube.
+     * @brief Creates the sampler used to read the cube.
      *
-     * Linear filtering, clamped addressing and a single mip level.
+     * Linear filtering and clamped addressing, with maxLod spanning the whole mip chain.
      */
-    void CreateSamplers();
+    void CreateSampler();
 
     /**
      * @brief Renders the equirectangular source into the six faces of the cube.
@@ -122,17 +98,13 @@ private:
     void ProjectEquirectToCube(const Texture& equirect, const Shader& shader);
 
     /**
-     * @brief Builds the pipeline driving the cube projection draws.
+     * @brief Fills the environment cube's mip chain from its top level.
      *
-     * Declares no vertex input (the vertex stage generates a fullscreen triangle
-     * from SV_VertexID), no depth state, and a single-sampled color attachment.
-     *
-     * @param shader     Shader providing the vertMain / fragMain entry points.
-     * @param setLayout  Layout of the set holding the equirectangular source.
-     *
-     * @return The pipeline layout and the pipeline, in that order.
+     * Must run after ProjectEquirectToCube, which writes only mip 0.
+     * Blits each level from the one above it, six layers at a time, 
+     * and leaves every level in eShaderReadOnlyOptimal.
      */
-    std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> CreateEquirectToCubePipeline(const Shader& shader, vk::DescriptorSetLayout setLayout);
+    void GenerateEnvironmentMips();
 
     // ----------------------------------------------
     // MEMBERS
@@ -150,24 +122,15 @@ private:
     // CONSTANTS
     // ----------------------------------------------
 
-    // Resolution of one cube face. 
+    // Resolution of one cube face.
     // 4096 / 4 is exactly one face's worth of a 4k equirectangular source at 90 degrees per face.
     static constexpr uint32_t   k_environmentSize   { 1024 };
 
-    // Half float keeps the cube small in size and is guaranteed to support linear filtering.
-    static constexpr vk::Format k_environmentFormat { vk::Format::eR16G16B16A16Sfloat };
+    // Levels in the environment cube's mip chain: floor(log2(1024)) + 1, down to 1x1.
+    // The prefilter step reads a level per sample rather than always the sharpest one,
+    // which is what keeps the sun from resolving as fireflies in the rough mips.
+    static constexpr uint32_t   k_environmentMips   { 11 };
 
-    // Orientation of each cube face, derived from the Vulkan specification. 
-    // The order below is the cube's layer order.
-    static constexpr std::array<CubeFaceOrientation, 6> k_cubeFacesOrientation
-    { 
-        {
-            { {  0,  0, -1, 0 }, { 0, -1,  0, 0 }, {  1,  0,  0, 0 } }, // +X
-            { {  0,  0,  1, 0 }, { 0, -1,  0, 0 }, { -1,  0,  0, 0 } }, // -X
-            { {  1,  0,  0, 0 }, { 0,  0,  1, 0 }, {  0,  1,  0, 0 } }, // +Y
-            { {  1,  0,  0, 0 }, { 0,  0, -1, 0 }, {  0, -1,  0, 0 } }, // -Y
-            { {  1,  0,  0, 0 }, { 0, -1,  0, 0 }, {  0,  0,  1, 0 } }, // +Z
-            { { -1,  0,  0, 0 }, { 0, -1,  0, 0 }, {  0,  0, -1, 0 } }, // -Z
-        } 
-    };
+    // Half float keeps the cube small in size and is guaranteed to support linear filtering.
+    static constexpr vk::Format k_cubeFormat        { vk::Format::eR16G16B16A16Sfloat };
 };

@@ -3,6 +3,14 @@
 
 static const float PI = 3.14159265359;
 
+// Highest mip index of the prefiltered cube. Must equal k_prefilterMips - 1 in
+// ImageBasedLighting.h: roughness 1 has to land on the last level.
+static const float k_prefilterMaxMip = 4.0;
+
+[[vk::binding(0, 2)]] SamplerCube irradianceTex;
+[[vk::binding(1, 2)]] SamplerCube prefilterTex;
+[[vk::binding(2, 2)]] Sampler2D   brdfLutTex;
+
 struct VSInput 
 {
     float3 inPosition;
@@ -96,6 +104,15 @@ float3 FresnelSchlick(float VdotH, float3 F0)
     return F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
 }
 
+// Fresnel for IBL: there is no single half-vector here, since the light arrives from
+// the whole hemisphere at once, so NdotV stands in for VdotH. The roughness term keeps
+// rough surfaces from picking up the full grazing-angle boost, which they should not.
+float3 FresnelSchlickRoughness(float NdotV, float3 F0, float roughness)
+{
+    float3 maxF = max(float3(1.0 - roughness), F0);
+    return F0 + (maxF - F0) * pow(saturate(1.0 - NdotV), 5.0);
+}
+
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET
 {
@@ -122,19 +139,21 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET
     float3 H = normalize(V + L);
     float3 radiance = ubo.lightColorIntensity.rgb * ubo.lightColorIntensity.w;
 
-    // Variables for the BRDF functions
-    float NdotV = max(dot(N, V), 0.0001);
+    // Useful variables for the BRDF functions
+    float NdotV = max(dot(N, V), 0.0001); // ensure min value to avoid division by zero
     float NdotL = max(dot(N, L), 0.0001);
     float NdotH = max(dot(N, H), 0.0);
     float VdotH = max(dot(V, H), 0.0);
     float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
+
+    // --- Direct Lighting ---
 
     // Cook-Torrance BRDF: GGX distribution + Smith geometry + Fresnel-Schlick
     float  D = DistributionGGX(NdotH, roughness);
     float  G = GeometrySmith(NdotV, NdotL, roughness);
     float3 F = FresnelSchlick(VdotH, F0);
 
-    float3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001); // +epsilon avoids division by zero
+    float3 specular = (D * G * F) / (4.0 * NdotV * NdotL);
 
     // Energy split: 
     // kS = fraction of light reflected specularly: already F (the Fresnel term above)
@@ -146,9 +165,33 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET
     // Diffuse + specular, scaled by the incoming radiance and the cosine of incidence (NdotL).
     float3 Lo = (kD * albedo / PI + specular) * radiance * NdotL;
 
-    // Ambient placeholder (pre-IBL), with AO + emissive
-    float3 ambient = 0.03 * albedo * ao;
+    // --- IBL Ambient Lighting ---
+
+    // Energy split for the ambient light, as kS/kD above. There is no single light direction,
+    // so the roughness-aware Fresnel uses NdotV in place of VdotH.
+    float3 ambientKS = FresnelSchlickRoughness(NdotV, F0, roughness);
+    float3 ambientKD = (1.0 - ambientKS) * (1.0 - metallic);
+
+    // Diffuse: the irradiance cube already holds the cosine-weighted light arriving around N,
+    // so one lookup stands in for the whole hemisphere integral. No division by PI here, unlike
+    // the direct term: the convolution stored irradiance / PI already.
+    float3 irradiance = irradianceTex.Sample(N).rgb;
+    float3 diffuseIBL = ambientKD * irradiance * albedo;
+
+    // Specular, split-sum approximation (Karis 2013): the product of two precomputed halves.
+    //  - prefiltered: the environment around R, blurred for this roughness (one roughness per mip).
+    //  - brdf: scale (x) and bias (y) applied to F0.
+    float3 R = reflect(-V, N);
+    float3 prefiltered = prefilterTex.SampleLevel(R, roughness * k_prefilterMaxMip).rgb;
+    float2 brdf = brdfLutTex.Sample(float2(NdotV, roughness)).rg;
+    float3 specularIBL = prefiltered * (F0 * brdf.x + brdf.y);
+
+    // Ambient occlusion only darkens the ambient light.
+    float3 ambient = (diffuseIBL + specularIBL) * ao;
+
+    // Emissive is light the surface gives off itself, so it is added after the occlusion.
     float3 color = ambient + Lo + emissive;
 
+    // Linear output: the swapchain is sRGB, so the hardware applies the gamma encoding on write.
     return float4(TonemapACES(color * k_exposure), 1.0);
 }

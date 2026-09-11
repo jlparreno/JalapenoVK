@@ -5,6 +5,7 @@
 
 // Forward declarations
 class VulkanContext;
+class ResourceManager;
 class RenderTarget;
 class Shader;
 class EnvironmentMap;
@@ -25,7 +26,6 @@ public:
     struct CreateInfo
     {
         RenderTarget*   renderTarget;       // Shared color attachment this pass renders into
-        Shader*         shader;             // Shader resource used by this pass
         EnvironmentMap* environmentMap;     // Owner of the environment cubemap this pass samples
     };
 
@@ -38,7 +38,15 @@ public:
         glm::mat4       invViewProj{ 1.0f };        // Inverse of the projection times the view without translation, so the fragment stage can turn NDC back into a world-space direction.
     };
 
-    SkyboxPass(const std::string& name, VulkanContext& context, const CreateInfo& info);
+    /**
+     * @brief Builds the pass.
+     *
+     * @param name             Name the pass is registered under.
+     * @param context          Vulkan context used for all GPU operations.
+     * @param resourceManager  Manager to load the shader for this pass: skybox.slang.
+     * @param info             Render target and environment map this pass works with.
+     */
+    SkyboxPass(const std::string& name, VulkanContext& context, ResourceManager& resourceManager, const CreateInfo& info);
 
     ~SkyboxPass() = default;
 
@@ -77,13 +85,15 @@ private:
     /**
      * @brief Creates the pipeline layout and the graphics pipeline.
      *
-     * The layout declares set 0 (m_layout) plus the inverse view-projection push
+     * The layout declares set 0 (m_descriptorSetLayout) plus the inverse view-projection push
      * constant, which the fragment stage consumes. The pipeline is the builder's
      * fullscreen archetype almost untouched: no vertex input and no depth state,
      * with only the sample count and color format taken from the RenderTarget so
      * it stays compatible with the attachment it shares with GeometryPass.
+     *
+     * @param shader  Shader providing the vertMain / fragMain entry points.
      */
-    void CreatePipeline();
+    void CreatePipeline(const Shader& shader);
 
     /**
      * @brief Creates the descriptor pool backing the single set: one combined image sampler.
@@ -105,16 +115,16 @@ private:
     // ----------------------------------------------
 
     // Non-owned references / config
-    VulkanContext&      m_context;                                              // Vulkan context used for all GPU operations. Not owned by this class.
-    CreateInfo          m_info;                                                 // Static configuration this pass was constructed with (render target, shader, environment map).
-    FrameData           m_frame{};                                              // Most recent per-frame data pushed via SetFrameData(), consumed by BeginPass() and Render().
+    VulkanContext&      m_context;            // Vulkan context used for all GPU operations. Not owned by this class.
+    CreateInfo          m_info;               // Static configuration this pass was constructed with (render target, environment map).
+    FrameData           m_frame{};            // Most recent per-frame data pushed via SetFrameData(), consumed by BeginPass() and Render().
 
     // Pipeline stack
-    vk::raii::PipelineLayout             m_pipelineLayout   { nullptr };        // Set 0 (m_layout) + the inverse view-projection push constant.
-    vk::raii::Pipeline                   m_pipeline         { nullptr };        // Graphics pipeline drawing the fullscreen triangle.
+    vk::raii::PipelineLayout             m_pipelineLayout       { nullptr };        // Set 0 (m_descriptorSetLayout) + the inverse view-projection push constant.
+    vk::raii::Pipeline                   m_pipeline             { nullptr };        // Graphics pipeline drawing the fullscreen triangle.
 
     // Descriptor set for the environment cubemap.
-    vk::raii::DescriptorSetLayout        m_layout           { nullptr };        // Set-0 layout (environment cubemap sampler).
-    vk::raii::DescriptorPool             m_descriptorPool   { nullptr };
-    vk::raii::DescriptorSet              m_descriptorSet    { nullptr };
+    vk::raii::DescriptorSetLayout        m_descriptorSetLayout  { nullptr };        // Set-0 layout (environment cubemap sampler).
+    vk::raii::DescriptorPool             m_descriptorPool       { nullptr };
+    vk::raii::DescriptorSet              m_descriptorSet        { nullptr };
 };

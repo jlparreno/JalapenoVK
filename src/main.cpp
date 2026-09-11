@@ -3,9 +3,9 @@
 #include "io/Window.h"
 #include "render/Renderer.h"
 #include "render/EnvironmentMap.h"
+#include "render/ImageBasedLighting.h"
 #include "resources/Mesh.h"
 #include "resources/ResourceManager.h"
-#include "resources/Shader.h"
 #include "resources/Texture.h"
 #include "scene/CameraComponent.h"
 #include "scene/CameraControllerComponent.h"
@@ -56,6 +56,7 @@ class JalapenoVK
 	std::unique_ptr<InputManager>		m_inputManager;		// Drives the active camera controller; wired up in InitInput() / InitRenderer().
 	std::unique_ptr<ResourceManager>	m_resourceManager;	// Owns loaded textures/meshes/shaders; must be unloaded before m_context is destroyed (see Cleanup()).
 	std::unique_ptr<EnvironmentMap>		m_environmentMap;	// Environment cubemap generated at startup.
+	std::unique_ptr<ImageBasedLighting>	m_imageBasedLighting; // IBL resources derived from the environment cubemap at startup.
 
 	vk::raii::DescriptorSetLayout		m_pbrMaterialLayout{ nullptr };
 
@@ -90,15 +91,11 @@ class JalapenoVK
 		m_resourceManager->LoadResource<Texture>(*m_context, "placeholder_white", glm::vec4(1.0f), Texture::sRGB);
 		m_resourceManager->LoadResource<Texture>(*m_context, "placeholder_normal", glm::vec4(0.5f, 0.5f, 1.0f, 1.0f), Texture::Linear);
 
-		// Load the resources the current scene needs. Ownership stays in the ResourceManager;
-		// the returned handles are used only to validate that the load succeeded.
-		auto mesh				= m_resourceManager->LoadResource<Mesh>(*m_context, "DamagedHelmet/glTF/DamagedHelmet", *m_resourceManager, *m_pbrMaterialLayout);
-		auto hdrTex				= m_resourceManager->LoadResource<Texture>(*m_context, "venice_sunset_4k", Texture::ColorSpace::Linear);
-		auto pbrShader			= m_resourceManager->LoadResource<Shader>(*m_context, "pbr.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
-		auto equirectCubeShader = m_resourceManager->LoadResource<Shader>(*m_context, "equirect_to_cube.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
-		auto skyboxShader		= m_resourceManager->LoadResource<Shader>(*m_context, "skybox.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
+		// Load the content the current scene needs.
+		auto mesh		= m_resourceManager->LoadResource<Mesh>	  (*m_context, "DamagedHelmet/glTF/DamagedHelmet", *m_resourceManager, *m_pbrMaterialLayout);
+		auto hdrTex		= m_resourceManager->LoadResource<Texture>(*m_context, "venice_sunset_4k", Texture::ColorSpace::Linear);
 
-		if (!mesh || !pbrShader || !equirectCubeShader || !skyboxShader || !hdrTex)
+		if (!mesh || !hdrTex)
 		{
 			throw std::runtime_error("Failed to load required resources");
 		}
@@ -106,10 +103,11 @@ class JalapenoVK
 
 	void InitEnvironment()
 	{
-		EnvironmentMap::CreateInfo environmentInfo{ m_resourceManager->GetResource<Texture>("venice_sunset_4k"), 
-													m_resourceManager->GetResource<Shader>("equirect_to_cube.slang") };
+		// Loaded and validated in InitResources(), so it is known to be there.
+		const Texture* equirect = m_resourceManager->GetResource<Texture>("venice_sunset_4k");
 
-		m_environmentMap = std::make_unique<EnvironmentMap>(*m_context, environmentInfo);
+		m_environmentMap	 = std::make_unique<EnvironmentMap>(*m_context, *m_resourceManager, *equirect);
+		m_imageBasedLighting = std::make_unique<ImageBasedLighting>(*m_context, *m_resourceManager, *m_environmentMap);
 
 		// The equirectangular source has done its job: its pixels now live in the cubemap.
 		// At 4096x2048 RGBA32F it is holding 128 MB of device memory, so release it here.
@@ -121,15 +119,15 @@ class JalapenoVK
 		// Create the scene with the default camera
 		m_scene = std::make_unique<Scene>();
 
-		// Directional Light
-		Entity* light = m_scene->AddEntity("Light");
+		// Directional Light, now commented because we are applying lighting using IBL
+		/*Entity* light = m_scene->AddEntity("Light");
 
 		auto* lightTransform = light->AddComponent<TransformComponent>();
 		lightTransform->SetRotation({ glm::radians(-50.0f), glm::radians(30.0f), 0.0f });
 
 		light->AddComponent<LightComponent>();
 
-		m_scene->SetActiveLight(light);
+		m_scene->SetActiveLight(light);*/
 
 		// Models...
 		Entity* model = m_scene->AddEntity("Model");
@@ -144,7 +142,16 @@ class JalapenoVK
 
 	void InitRenderer()
 	{
-		m_renderer = std::make_unique<Renderer>(*m_context, *m_resourceManager, *m_scene, m_window->GetHandle(), *m_pbrMaterialLayout, *m_environmentMap);
+		Renderer::CreateInfo rendererInfo
+		{
+			.window				= m_window->GetHandle(),
+			.scene				= m_scene.get(),
+			.pbrMaterialLayout	= *m_pbrMaterialLayout,
+			.environmentMap		= m_environmentMap.get(),
+			.imageBasedLighting	= m_imageBasedLighting.get()
+		};
+
+		m_renderer = std::make_unique<Renderer>(*m_context, *m_resourceManager, rendererInfo);
 
 		// Cache a non-owning handle to the camera controller so the input layer can drive it.
 		if (Entity* camera = m_scene->GetActiveCamera())
@@ -191,6 +198,7 @@ class JalapenoVK
 		// to be alive during their destructors.
 		m_resourceManager->UnloadAllResources();
 		m_renderer.reset();
+		m_imageBasedLighting.reset();
 		m_environmentMap.reset();
 		m_pbrMaterialLayout = nullptr;
 

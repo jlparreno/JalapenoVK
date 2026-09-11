@@ -7,20 +7,32 @@ PipelineBuilder::PipelineBuilder(VulkanContext& context) :
 {
 }
 
-vk::raii::Pipeline PipelineBuilder::Build()
+PipelineBuilder::GraphicsPipeline PipelineBuilder::Build()
 {
     // Pipeline validation
     if (!m_shader)
         throw std::runtime_error("PipelineBuilder: no shader set");
-    
-    if (!m_layout)
-        throw std::runtime_error("PipelineBuilder: no pipeline layout set");
-    
+
     if (m_colorFormat == vk::Format::eUndefined)
         throw std::runtime_error("PipelineBuilder: no color format set");
 
     if (m_depthTest && m_depthFormat == vk::Format::eUndefined)
         throw std::runtime_error("PipelineBuilder: depth test enabled without a depth format");
+
+    for (vk::DescriptorSetLayout setLayout : m_setLayouts)
+    {
+        if (!setLayout)
+            throw std::runtime_error("PipelineBuilder: null descriptor set layout");
+    }
+
+    if (bool(m_pushConstantRange.stageFlags) != (m_pushConstantRange.size > 0))
+        throw std::runtime_error("PipelineBuilder: push constant stages and size must be set together");
+
+    if (m_pushConstantRange.size % 4 != 0)
+        throw std::runtime_error("PipelineBuilder: push constant size must be a multiple of 4");
+
+    if (m_pushConstantRange.size > m_context.GetPhysicalDevice().getProperties().limits.maxPushConstantsSize)
+        throw std::runtime_error("PipelineBuilder: push constant range exceeds maxPushConstantsSize");
 
     // Shader creation
     const vk::raii::ShaderModule& shaderModule = m_shader->GetShaderModule();
@@ -102,6 +114,18 @@ vk::raii::Pipeline PipelineBuilder::Build()
         .pDynamicStates = dynamicStates.data()
     };
 
+    // Pipeline layout
+    vk::PipelineLayoutCreateInfo layoutInfo;
+    layoutInfo.setSetLayouts(m_setLayouts);
+
+    // Push constants
+    if (m_pushConstantRange.size > 0)
+    {
+        layoutInfo.setPushConstantRanges(m_pushConstantRange);
+    }
+
+    vk::raii::PipelineLayout layout(m_context.GetDevice(), layoutInfo);
+
     // Dynamic rendering: no VkRenderPass, formats are declared here instead.
     vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> chain;
 
@@ -115,7 +139,7 @@ vk::raii::Pipeline PipelineBuilder::Build()
         .setPMultisampleState(&multisampling)
         .setPColorBlendState(&colorBlending)
         .setPDynamicState(&dynamicState)
-        .setLayout(m_layout)
+        .setLayout(*layout)
         .setRenderPass(nullptr);
 
     // Configure color attachment
@@ -139,10 +163,10 @@ vk::raii::Pipeline PipelineBuilder::Build()
         pipelineRenderingInfo.setDepthAttachmentFormat(m_depthFormat);
     }
 
-    // Create pipeline and return it
+    // Create pipeline and return it along with its layout
     vk::raii::Pipeline pipeline(m_context.GetDevice(), nullptr, chain.get<vk::GraphicsPipelineCreateInfo>());
 
-    return pipeline;
+    return { std::move(layout), std::move(pipeline) };
 }
 
 PipelineBuilder& PipelineBuilder::SetVertexInput(const vk::VertexInputBindingDescription& binding, vk::ArrayProxy<const vk::VertexInputAttributeDescription> attributes)
@@ -171,9 +195,18 @@ PipelineBuilder& PipelineBuilder::SetDepthTest(bool write, vk::CompareOp compare
     return *this;
 }
 
-PipelineBuilder& PipelineBuilder::SetLayout(vk::PipelineLayout layout)
+PipelineBuilder& PipelineBuilder::SetDescriptorSetLayouts(vk::ArrayProxy<const vk::DescriptorSetLayout> layouts)
 {
-    m_layout = layout;
+    m_setLayouts.assign(layouts.begin(), layouts.end());
+    return *this;
+}
+
+PipelineBuilder& PipelineBuilder::SetPushConstants(vk::ShaderStageFlags stages, uint32_t size)
+{
+    m_pushConstantRange.setStageFlags(stages)
+        .setOffset(0)
+        .setSize(size);
+
     return *this;
 }
 

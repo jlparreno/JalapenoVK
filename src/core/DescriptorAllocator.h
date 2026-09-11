@@ -12,10 +12,21 @@ class VulkanContext;
  *
  * Writing the allocated sets stays with the caller: the binding layout differs
  * per use case (a pass's per-frame UBO+texture vs. a material's factors UBO + several textures).
+ * The one exception is CreateSingleImageDescriptor, whose layout is always the same.
  */
 class DescriptorAllocator
 {
 public:
+
+    /**
+     * @brief A descriptor set together with the layout and the pool it was built from.
+     */
+    struct SingleImageDescriptor
+    {
+        vk::raii::DescriptorSetLayout   layout  { nullptr };    // One combined image sampler at binding 0, read by the fragment stage.
+        vk::raii::DescriptorPool        pool    { nullptr };    // Pool the set is allocated from. Must outlive it.
+        vk::raii::DescriptorSet         set     { nullptr };    // The set, already pointing at the image.
+    };
 
     /**
      * @brief Create a descriptor pool sized for the given pool sizes.
@@ -35,4 +46,15 @@ public:
      * @param count   Number of sets to allocate.
      */
     static std::vector<vk::raii::DescriptorSet> AllocateSets(VulkanContext& context, const vk::raii::DescriptorPool& pool, vk::DescriptorSetLayout layout, uint32_t count);
+
+    /**
+     * @brief Builds a set exposing a single image to the fragment stage, and writes it.
+     *
+     * For short-lived sets that sample a source image
+     *
+     * @param context Vulkan context (device owner).
+     * @param sampler Sampler the image is read with.
+     * @param view    View of the image. Must be in eShaderReadOnlyOptimal whenever the set is used.
+     */
+    static SingleImageDescriptor CreateSingleImageDescriptor(VulkanContext& context, vk::Sampler sampler, vk::ImageView view);
 };

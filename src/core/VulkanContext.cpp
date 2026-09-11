@@ -96,46 +96,34 @@ std::pair<vk::raii::Image, vk::raii::DeviceMemory> VulkanContext::CreateImage(co
 	return { std::move(image), std::move(imageMemory) };
 }
 
-void VulkanContext::TransitionImageLayout(const vk::raii::Image& image, vk::ImageLayout oldLayout, vk::ImageLayout newLayout, uint32_t mipLevels)
+void VulkanContext::TransitionImageLayout(const ImageTransition& transition)
 {
 	const auto commandBuffer = BeginSingleTimeCommands();
 
+	TransitionImageLayout(*commandBuffer, transition);
+
+	EndSingleTimeCommands(*commandBuffer);
+}
+
+void VulkanContext::TransitionImageLayout(vk::raii::CommandBuffer& commandBuffer, const ImageTransition& transition)
+{
 	// !! --> A barrier tells Vulkan: this image was being used like this, now it will be used like that
 	vk::ImageMemoryBarrier2 barrier;
-	barrier.setOldLayout(oldLayout)
-	       .setNewLayout(newLayout)
+	barrier.setSrcStageMask(transition.srcStageMask)
+	       .setSrcAccessMask(transition.srcAccessMask)
+	       .setDstStageMask(transition.dstStageMask)
+	       .setDstAccessMask(transition.dstAccessMask)
+	       .setOldLayout(transition.oldLayout)
+	       .setNewLayout(transition.newLayout)
 	       .setSrcQueueFamilyIndex(vk::QueueFamilyIgnored)
 	       .setDstQueueFamilyIndex(vk::QueueFamilyIgnored)
-	       .setImage(image)
-	       .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, mipLevels, 0, 1 });
-
-	// Image just created, we want it ready to receive a copy
-	if (oldLayout == vk::ImageLayout::eUndefined && newLayout == vk::ImageLayout::eTransferDstOptimal)
-	{
-		barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTopOfPipe)
-		       .setSrcAccessMask(vk::AccessFlagBits2::eNone)
-		       .setDstStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		       .setDstAccessMask(vk::AccessFlagBits2::eTransferWrite);
-	}
-	// We already copied the pixels, now this image should be used in shaders. Wait writes to end.
-	else if (oldLayout == vk::ImageLayout::eTransferDstOptimal && newLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
-	{
-		barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		       .setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite)
-		       .setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
-		       .setDstAccessMask(vk::AccessFlagBits2::eShaderRead);
-	}
-	else
-	{
-		throw std::invalid_argument("unsupported layout transition!");
-	}
+	       .setImage(transition.image)
+	       .setSubresourceRange({ transition.aspect, transition.baseMipLevel, transition.levelCount, transition.baseArrayLayer, transition.layerCount });
 
 	// Record the transition
 	vk::DependencyInfo depInfo;
 	depInfo.setImageMemoryBarriers(barrier);
-	commandBuffer->pipelineBarrier2(depInfo);
-
-	EndSingleTimeCommands(*commandBuffer);
+	commandBuffer.pipelineBarrier2(depInfo);
 }
 
 void VulkanContext::CopyBufferToImage(const vk::raii::Buffer& buffer, vk::raii::Image& image, uint32_t width, uint32_t height)

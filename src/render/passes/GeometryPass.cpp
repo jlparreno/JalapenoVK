@@ -3,20 +3,30 @@
 #include "core/DescriptorAllocator.h"
 #include "core/PipelineBuilder.h"
 #include "core/VulkanContext.h"
+#include "render/ImageBasedLighting.h"
 #include "render/RenderTarget.h"
 #include "resources/Mesh.h"
+#include "resources/ResourceManager.h"
 #include "resources/Shader.h"
 #include "materials/Material.h"
 
 #include <cstring>
+#include <stdexcept>
 
-GeometryPass::GeometryPass(const std::string& name, VulkanContext& context, const CreateInfo& info) : 
+GeometryPass::GeometryPass(const std::string& name, VulkanContext& context, ResourceManager& resourceManager, const CreateInfo& info) :
     RenderPass(name),
-    m_context(context), 
+    m_context(context),
     m_info(info)
 {
+    const auto shader = resourceManager.LoadResource<Shader>(context, "pbr.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
+
+    if (!shader)
+    {
+        throw std::runtime_error("GeometryPass: failed to load pbr.slang");
+    }
+
     CreateDescriptorSetLayout();
-    CreatePipeline();
+    CreatePipeline(*shader);
     CreateDescriptorPool();
     CreateUniformBuffers();
     CreateDescriptorSets();
@@ -31,39 +41,29 @@ void GeometryPass::BeginPass(vk::raii::CommandBuffer& cmd, const FrameInfo& fram
     // The skybox already wrote this attachment, make those writes visible before we load them.
     // Two separate rendering blocks touching the same image have no implicit dependency
     // with dynamic rendering, and the load is a read, hence the read bit on the destination.
+    m_context.TransitionImageLayout(cmd,
     {
-        vk::ImageMemoryBarrier2 barrier;
-        barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-            .setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
-            .setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-            .setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite)
-            .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
-            .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
-            .setImage(m_info.renderTarget->GetColorImage())
-            .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
-
-        vk::DependencyInfo depInfo;
-        depInfo.setImageMemoryBarriers(barrier);
-        cmd.pipelineBarrier2(depInfo);
-    }
+        .image          = m_info.renderTarget->GetColorImage(),
+        .oldLayout      = vk::ImageLayout::eColorAttachmentOptimal,
+        .srcStageMask   = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .srcAccessMask  = vk::AccessFlagBits2::eColorAttachmentWrite,
+        .newLayout      = vk::ImageLayout::eColorAttachmentOptimal,
+        .dstStageMask   = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .dstAccessMask  = vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite
+    });
 
     // Transition depth attachment: Undefined -> DepthAttachmentOptimal
+    m_context.TransitionImageLayout(cmd,
     {
-        vk::ImageMemoryBarrier2 barrier;
-        barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTopOfPipe)
-               .setSrcAccessMask(vk::AccessFlagBits2::eNone)
-               .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests)
-               .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentRead
-                                | vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-               .setOldLayout(vk::ImageLayout::eUndefined)
-               .setNewLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-               .setImage(m_info.renderTarget->GetDepthImage())
-               .setSubresourceRange({ vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1 });
-
-        vk::DependencyInfo depInfo;
-        depInfo.setImageMemoryBarriers(barrier);
-        cmd.pipelineBarrier2(depInfo);
-    }
+        .image          = m_info.renderTarget->GetDepthImage(),
+        .oldLayout      = vk::ImageLayout::eUndefined,
+        .srcStageMask   = vk::PipelineStageFlagBits2::eTopOfPipe,
+        .srcAccessMask  = vk::AccessFlagBits2::eNone,
+        .newLayout      = vk::ImageLayout::eDepthAttachmentOptimal,
+        .dstStageMask   = vk::PipelineStageFlagBits2::eEarlyFragmentTests,
+        .dstAccessMask  = vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+        .aspect         = vk::ImageAspectFlagBits::eDepth
+    });
 
     // Color attachment: MSAA image + resolve into current swapchain image
     vk::RenderingAttachmentInfo colorAttachment;
@@ -109,8 +109,11 @@ void GeometryPass::Render(vk::raii::CommandBuffer& cmd, const FrameInfo& frame)
         0.0f, 1.0f });
     cmd.setScissor(0, vk::Rect2D{ vk::Offset2D{ 0, 0 }, m_frame.extent });
 
-    // Bind per-frame descriptor set (UBO + texture)
+    // Bind per-frame descriptor set (scene UBO)
     cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipelineLayout, 0, *m_descriptorSets[frame.frameIndex], nullptr);
+
+    // Bind IBL descriptor set (irradiance, prefiltered cube and BRDF LUT)
+    cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipelineLayout, 2, m_info.imageBasedLighting->GetDescriptorSet(), nullptr);
 
     for (auto& renderable : m_frame.renderables)
     {
@@ -156,35 +159,26 @@ void GeometryPass::CreateDescriptorSetLayout()
         .pBindings    = bindings.data()
     };
 
-    m_layout = vk::raii::DescriptorSetLayout(m_context.GetDevice(), layoutInfo);
+    m_descriptorSetLayout = vk::raii::DescriptorSetLayout(m_context.GetDevice(), layoutInfo);
 }
 
-void GeometryPass::CreatePipeline()
+void GeometryPass::CreatePipeline(const Shader& shader)
 {
-    vk::PushConstantRange pushConstantRange;
-    pushConstantRange.setStageFlags(vk::ShaderStageFlagBits::eVertex)
-                     .setOffset(0)
-                     .setSize(sizeof(glm::mat4));
+    std::array<vk::DescriptorSetLayout, 3> layouts{ *m_descriptorSetLayout, m_info.materialLayout, m_info.imageBasedLighting->GetDescriptorSetLayout() };
 
-    std::array<vk::DescriptorSetLayout, 2> layouts{ *m_layout, m_info.materialLayout };
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo
-    {
-        .setLayoutCount         = 2,
-        .pSetLayouts            = layouts.data(),
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges    = &pushConstantRange
-    };
-    m_pipelineLayout = vk::raii::PipelineLayout(m_context.GetDevice(), pipelineLayoutInfo);
-
-    m_pipeline = PipelineBuilder(m_context)
-        .SetShader(*m_info.shader)
-        .SetLayout(*m_pipelineLayout)
+    auto [layout, pipeline] = PipelineBuilder(m_context)
+        .SetShader(shader)
+        .SetDescriptorSetLayouts(layouts)
+        .SetPushConstants(vk::ShaderStageFlagBits::eVertex, sizeof(glm::mat4))
         .SetColorFormat(m_info.renderTarget->GetColorFormat())
         .SetDepthFormat(m_info.renderTarget->GetDepthFormat())
         .SetDepthTest(true, vk::CompareOp::eLess)
         .SetSamples(m_info.renderTarget->GetSamples(), 0.2f)
         .SetVertexInput(Vertex::getBindingDescription(), Vertex::getAttributeDescriptions())
         .Build();
+
+    m_pipelineLayout = std::move(layout);
+    m_pipeline       = std::move(pipeline);
 }
 
 void GeometryPass::CreateDescriptorPool()
@@ -218,7 +212,7 @@ void GeometryPass::CreateUniformBuffers()
 
 void GeometryPass::CreateDescriptorSets()
 {
-    m_descriptorSets = DescriptorAllocator::AllocateSets(m_context, m_descriptorPool, *m_layout, k_maxFramesInFlight);
+    m_descriptorSets = DescriptorAllocator::AllocateSets(m_context, m_descriptorPool, *m_descriptorSetLayout, k_maxFramesInFlight);
 
     for (size_t i = 0; i < k_maxFramesInFlight; i++)
     {

@@ -116,3 +116,32 @@ struct UBOBuffer
 	vk::raii::DeviceMemory	memory{ nullptr };  // GPU memory allocation backing the buffer.
 	void*					mapped{ nullptr };  // Persistent host mapping used for per-frame writes.
 };
+
+/**
+ * @brief Orientation of one cube face, in world space.
+ *
+ * A texel at normalized device coordinates (u, v) within the face looks along
+ * forward + u * right + v * up. Pushed to the fragment stage as a push constant,
+ * one face per draw, by every step that renders into a cube face by face
+ * (EnvironmentMap's projection and ImageBasedLighting's convolutions).
+ */
+struct CubeFaceOrientation
+{
+	glm::vec4 right;
+	glm::vec4 up;
+	glm::vec4 forward;
+};
+
+// Orientation of each cube face, derived from the Vulkan specification.
+// The order below is the cube's layer order.
+static constexpr std::array<CubeFaceOrientation, 6> k_cubeFacesOrientation
+{
+	{
+		{ {  0,  0, -1, 0 }, { 0, -1,  0, 0 }, {  1,  0,  0, 0 } }, // +X
+		{ {  0,  0,  1, 0 }, { 0, -1,  0, 0 }, { -1,  0,  0, 0 } }, // -X
+		{ {  1,  0,  0, 0 }, { 0,  0,  1, 0 }, {  0,  1,  0, 0 } }, // +Y
+		{ {  1,  0,  0, 0 }, { 0,  0, -1, 0 }, {  0, -1,  0, 0 } }, // -Y
+		{ {  1,  0,  0, 0 }, { 0, -1,  0, 0 }, {  0,  0,  1, 0 } }, // +Z
+		{ { -1,  0,  0, 0 }, { 0, -1,  0, 0 }, {  0,  0, -1, 0 } }, // -Z
+	}
+};

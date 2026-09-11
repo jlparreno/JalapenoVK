@@ -5,7 +5,7 @@
 #include "render/passes/GeometryPass.h"
 #include "render/passes/SkyboxPass.h"
 #include "resources/Mesh.h"
-#include "resources/Shader.h"
+#include "resources/ResourceManager.h"
 #include "resources/Texture.h"
 #include "scene/TransformComponent.h"
 #include "scene/MeshComponent.h"
@@ -13,18 +13,14 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-Renderer::Renderer(VulkanContext& context, ResourceManager& resourceManager, Scene& scene, GLFWwindow* window, vk::DescriptorSetLayout pbrMaterialLayout, EnvironmentMap& environmentMap) :
+Renderer::Renderer(VulkanContext& context, ResourceManager& resourceManager, const CreateInfo& info) :
     m_context(context),
-    m_window(window),
-    m_scene(scene),
-    m_resourceManager(resourceManager),
-    m_swapchain(context, window),
-    m_renderTarget(context, m_swapchain.GetFormat(), m_swapchain.GetExtent()),
-    m_pbrMaterialLayout(pbrMaterialLayout),
-    m_environmentMap(environmentMap)
+    m_scene(*info.scene),
+    m_swapchain(context, info.window),
+    m_renderTarget(context, m_swapchain.GetFormat(), m_swapchain.GetExtent())
 {
     CreateCommandBuffers();
-    SetupRenderPasses();
+    SetupRenderPasses(resourceManager, info);
 }
 
 void Renderer::Render()
@@ -89,7 +85,7 @@ void Renderer::Render()
         auto* light = m_scene.GetActiveLight() ? m_scene.GetActiveLight()->GetComponent<LightComponent>() : nullptr;
         glm::vec3 lightDirection = light ? light->GetDirection() : glm::vec3(0.0f, -1.0f, 0.0f);
         glm::vec3 lightColor = light ? light->GetColor()         : glm::vec3(1.0f);
-        float lightIntensity = light ? light->GetIntensity()     : 1.0f;
+        float lightIntensity = light ? light->GetIntensity()     : 0.0f;
 
         GeometryPass::FrameData frameData
         {
@@ -161,27 +157,26 @@ void Renderer::HandleSwapchainRecreation()
     }
 }
 
-void Renderer::SetupRenderPasses()
+void Renderer::SetupRenderPasses(ResourceManager& resourceManager, const CreateInfo& info)
 {
     // Add SkyboxPass
     SkyboxPass::CreateInfo skyboxInfo
     {
         .renderTarget = &m_renderTarget,
-        .shader = m_resourceManager.GetResource<Shader>("skybox.slang"),
-        .environmentMap = &m_environmentMap
+        .environmentMap = info.environmentMap
     };
 
-    m_skyboxPass = m_renderPassManager.AddRenderPass<SkyboxPass>("SkyboxPass", m_context, skyboxInfo);
+    m_skyboxPass = m_renderPassManager.AddRenderPass<SkyboxPass>("SkyboxPass", m_context, resourceManager, skyboxInfo);
 
     // Add GeometryPass
     GeometryPass::CreateInfo geometryInfo
     {
         .renderTarget = &m_renderTarget,
-        .shader = m_resourceManager.GetResource<Shader>("pbr.slang"),
-        .materialLayout = m_pbrMaterialLayout
+        .materialLayout = info.pbrMaterialLayout,
+        .imageBasedLighting = info.imageBasedLighting
     };
 
-    m_geometryPass = m_renderPassManager.AddRenderPass<GeometryPass>("GeometryPass", m_context, geometryInfo);
+    m_geometryPass = m_renderPassManager.AddRenderPass<GeometryPass>("GeometryPass", m_context, resourceManager, geometryInfo);
     m_geometryPass->AddDependency("SkyboxPass");
 }
 
@@ -200,41 +195,31 @@ void Renderer::RecordCommandBuffer(vk::raii::CommandBuffer& commandBuffer, uint3
     const vk::Image swapchainImage = m_swapchain.GetImage(imageIndex);
 
     // Swapchain: Undefined -> ColorAttachmentOptimal (target for the MSAA resolve)
+    m_context.TransitionImageLayout(commandBuffer,
     {
-        vk::ImageMemoryBarrier2 barrier;
-        barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTopOfPipe)
-               .setSrcAccessMask(vk::AccessFlagBits2::eNone)
-               .setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-               .setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
-               .setOldLayout(vk::ImageLayout::eUndefined)
-               .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
-               .setImage(swapchainImage)
-               .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
-
-        vk::DependencyInfo depInfo;
-        depInfo.setImageMemoryBarriers(barrier);
-        commandBuffer.pipelineBarrier2(depInfo);
-    }
+        .image          = swapchainImage,
+        .oldLayout      = vk::ImageLayout::eUndefined,
+        .srcStageMask   = vk::PipelineStageFlagBits2::eTopOfPipe,
+        .srcAccessMask  = vk::AccessFlagBits2::eNone,
+        .newLayout      = vk::ImageLayout::eColorAttachmentOptimal,
+        .dstStageMask   = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .dstAccessMask  = vk::AccessFlagBits2::eColorAttachmentWrite
+    });
 
     // Passes manage their own attachment transitions (color MSAA + depth).
     m_renderPassManager.Execute(commandBuffer, { imageIndex, m_swapchain.GetCurrentFrame() });
 
     // Swapchain: ColorAttachmentOptimal -> PresentSrcKHR
+    m_context.TransitionImageLayout(commandBuffer,
     {
-        vk::ImageMemoryBarrier2 barrier;
-        barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-               .setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
-               .setDstStageMask(vk::PipelineStageFlagBits2::eBottomOfPipe)
-               .setDstAccessMask(vk::AccessFlagBits2::eNone)
-               .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
-               .setNewLayout(vk::ImageLayout::ePresentSrcKHR)
-               .setImage(swapchainImage)
-               .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
-
-        vk::DependencyInfo depInfo;
-        depInfo.setImageMemoryBarriers(barrier);
-        commandBuffer.pipelineBarrier2(depInfo);
-    }
+        .image          = swapchainImage,
+        .oldLayout      = vk::ImageLayout::eColorAttachmentOptimal,
+        .srcStageMask   = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .srcAccessMask  = vk::AccessFlagBits2::eColorAttachmentWrite,
+        .newLayout      = vk::ImageLayout::ePresentSrcKHR,
+        .dstStageMask   = vk::PipelineStageFlagBits2::eBottomOfPipe,
+        .dstAccessMask  = vk::AccessFlagBits2::eNone
+    });
 }
 
 void Renderer::SubmitCommandBuffer(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex)

@@ -7,9 +7,11 @@
 
 // Forward declarations
 class VulkanContext;
+class ResourceManager;
 class RenderTarget;
 class Shader;
 class Mesh;
+class ImageBasedLighting;
 
 /**
  * @brief Geometry render pass: draws opaque geometry into the shared MSAA color target and resolves it into the current swapchain image.
@@ -33,8 +35,8 @@ public:
     struct CreateInfo
     {
         RenderTarget*           renderTarget;       // Shared color + depth attachments this pass renders into (borrowed)
-        Shader*                 shader;             // Shader resource used by this pass (borrowed)
         vk::DescriptorSetLayout materialLayout;     // Shared PBR material set layout
+        ImageBasedLighting*     imageBasedLighting; // Owner of the IBL set (set 2) this pass samples
     };
 
     /**
@@ -55,7 +57,15 @@ public:
         std::vector<Renderable> renderables;
     };
 
-    GeometryPass(const std::string& name, VulkanContext& context, const CreateInfo& info);
+    /**
+     * @brief Builds the pass.
+     *
+     * @param name             Name the pass is registered under.
+     * @param context          Vulkan context used for all GPU operations.
+     * @param resourceManager  Manager to load the shader for this pass: pbr.slang.
+     * @param info             Render target, material layout and IBL this pass works with.
+     */
+    GeometryPass(const std::string& name, VulkanContext& context, ResourceManager& resourceManager, const CreateInfo& info);
 
     ~GeometryPass() = default;
 
@@ -94,13 +104,14 @@ private:
     /**
      * @brief Creates the pipeline layout and the graphics pipeline.
      *
-     * The layout declares set 0 (m_layout) + set 1 (m_info.materialLayout) plus
-     * the model matrix push constant. The pipeline itself uses dynamic rendering
+     * The layout declares set 0 (m_descriptorSetLayout) + set 1 (m_info.materialLayout) + set 2 (the IBL) 
+     * plus the model matrix push constant. The pipeline itself uses dynamic rendering
      * (no VkRenderPass), takes its vertex input from Vertex, and reads sample
-     * count and attachment formats from the RenderTarget, so it stays compatible
-     * with the attachments it will render into.
+     * count and attachment formats from the RenderTarget.
+     *
+     * @param shader  Shader providing the vertMain / fragMain entry points.
      */
-    void CreatePipeline();
+    void CreatePipeline(const Shader& shader);
 
     /**
      * @brief Creates the descriptor pool backing the per-frame sets: one uniform buffer per frame in flight.
@@ -131,19 +142,18 @@ private:
     // ----------------------------------------------
 
     // Non-owned references / config
-    VulkanContext&      m_context;                                              // Vulkan context used for all GPU operations. Not owned by this class.
-    CreateInfo          m_info;                                                 // Static configuration this pass was constructed with (render target, shader, material layout).
-    FrameData           m_frame{};                                              // Most recent per-frame data pushed via SetFrameData(), consumed by Render().
-
-    // Descriptor set layout for the scene UBO
-    vk::raii::DescriptorSetLayout        m_layout           { nullptr };        // Set-0 layout (per-frame UBO: view/proj/light/camera).
+    VulkanContext&      m_context;                                                  // Vulkan context used for all GPU operations. Not owned by this class.
+    CreateInfo          m_info;                                                     // Static configuration this pass was constructed with (render target, material layout, IBL).
+    FrameData           m_frame{};                                                  // Most recent per-frame data pushed via SetFrameData(), consumed by BeginPass() and Render().
 
     // Pipeline stack
-    vk::raii::PipelineLayout             m_pipelineLayout   { nullptr };        // Set 0 (m_layout) + set 1 (m_info.materialLayout) + model push constants.
-    vk::raii::Pipeline                   m_pipeline         { nullptr };        // Graphics pipeline. PBR at the moment.
+    vk::raii::PipelineLayout             m_pipelineLayout           { nullptr };    // Set 0 (m_descriptorSetLayout) + set 1 (m_info.materialLayout) + set 2 (IBL) + model push constants.
+    vk::raii::Pipeline                   m_pipeline                 { nullptr };    // Graphics pipeline. PBR at the moment.
 
     // Descriptor + per-frame data (one entry per frame-in-flight)
-    vk::raii::DescriptorPool             m_descriptorPool { nullptr };
+    vk::raii::DescriptorSetLayout        m_descriptorSetLayout      { nullptr };    // Set-0 layout (per-frame UBO: view/proj/light/camera).
+    vk::raii::DescriptorPool             m_descriptorPool           { nullptr };
     std::vector<vk::raii::DescriptorSet> m_descriptorSets;
+
     std::vector<UBOBuffer>               m_uniformBuffers;
 };

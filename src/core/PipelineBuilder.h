@@ -9,17 +9,25 @@ class VulkanContext;
 class Shader;
 
 /**
- * @brief Builds a graphics pipeline from the configured states.
+ * @brief Builds a graphics pipeline and its layout from the configured states.
  *
- * The defaults are for a fullscreen-triangle (no vertex input, no depth, single-sampled), 
+ * The defaults are for a fullscreen-triangle (no vertex input, no depth, single-sampled),
  * so a pipeline configure only what differs from there.
  *
- * The pipeline layout is not owned here: it stays with the caller, which still
- * needs it to bind descriptor sets and push constants.
+ * The caller still needs to bind descriptor sets and push constants.
  */
 class PipelineBuilder
 {
 public:
+
+    /**
+     * @brief A graphics pipeline together with the layout it was built with.
+     */
+    struct GraphicsPipeline
+    {
+        vk::raii::PipelineLayout    layout{ nullptr };      // Descriptor set layouts and push constant ranges.
+        vk::raii::Pipeline          pipeline{ nullptr };    // The pipeline itself.
+    };
 
     /**
      * @brief Creates a builder configured as the fullscreen-triangle archetype.
@@ -31,9 +39,9 @@ public:
     /**
      * @brief Creates the pipeline from the configured state.
      *
-     * @return The newly created pipeline.
+     * @return The newly created pipeline and its layout.
      */
-    vk::raii::Pipeline Build();
+    GraphicsPipeline Build();
 
     // ----------------------------------------------
     // SETTERS
@@ -75,9 +83,19 @@ public:
     PipelineBuilder& SetDepthTest(bool write, vk::CompareOp compareOp);
 
     /**
-     * @brief Sets the pipeline layout. Required.
+     * @brief Declares the descriptor set layouts, one per set, in set order.
+     *
+     * @param layouts Layout of set 0, set 1, and so on.
      */
-    PipelineBuilder& SetLayout(vk::PipelineLayout layout);
+    PipelineBuilder& SetDescriptorSetLayouts(vk::ArrayProxy<const vk::DescriptorSetLayout> layouts);
+
+    /**
+     * @brief Declares a single push constant range, starting at offset 0.
+     *
+     * @param stages Shader stages that read the push constants.
+     * @param size   Size of the range in bytes.
+     */
+    PipelineBuilder& SetPushConstants(vk::ShaderStageFlags stages, uint32_t size);
 
     /**
      * @brief Sets the format of the color attachment rendered into. Required.
@@ -101,8 +119,6 @@ private:
     const char*             m_vertEntry         { "vertMain" };                 // Vertex entry point within the shader.
     const char*             m_fragEntry         { "fragMain" };                 // Fragment entry point within the shader.
 
-    vk::PipelineLayout      m_layout            { nullptr };                    // Descriptor set layouts and push constant ranges.
-
     vk::Format              m_colorFormat       { vk::Format::eUndefined };     // Format of the color attachment rendered into.
     vk::Format              m_depthFormat       { vk::Format::eUndefined };     // Format of the depth attachment, undefined when depth is unused.
     bool                    m_depthTest         { false };                      // Whether depth state is declared at all.
@@ -114,4 +130,7 @@ private:
 
     vk::VertexInputBindingDescription                   m_vertexBinding{};      // How the GPU steps through the vertex buffer.
     std::vector<vk::VertexInputAttributeDescription>    m_vertexAttributes;     // One entry per vertex attribute. Empty means no vertex input.
+
+    std::vector<vk::DescriptorSetLayout>                m_setLayouts;           // One layout per set, in set order. Empty means no sets.
+    vk::PushConstantRange                               m_pushConstantRange{};  // Single push constant range.
 };

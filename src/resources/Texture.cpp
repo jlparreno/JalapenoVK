@@ -281,12 +281,34 @@ void Texture::CreateVulkanImage(const vk::raii::Buffer& stagingBuffer)
 
     std::tie(m_image, m_memory) = m_context.CreateImage(imageDesc);
 
+    // Image just created, ready it to receive the copy
+    m_context.TransitionImageLayout(
+    {
+        .image          = m_image,
+        .oldLayout      = vk::ImageLayout::eUndefined,
+        .srcStageMask   = vk::PipelineStageFlagBits2::eTopOfPipe,
+        .srcAccessMask  = vk::AccessFlagBits2::eNone,
+        .newLayout      = vk::ImageLayout::eTransferDstOptimal,
+        .dstStageMask   = vk::PipelineStageFlagBits2::eTransfer,
+        .dstAccessMask  = vk::AccessFlagBits2::eTransferWrite,
+        .levelCount     = m_mipLevels
+    });
+
     // Perform the copy from the staging buffer to the GPU image
-    m_context.TransitionImageLayout(m_image, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, m_mipLevels);
     m_context.CopyBufferToImage(stagingBuffer, m_image, static_cast<uint32_t>(m_width), static_cast<uint32_t>(m_height));
 
-    // Transition image layout for shader reading optimal.
-    m_context.TransitionImageLayout(m_image, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal, m_mipLevels);
+    // Pixels copied, now the image will be sampled in shaders. Wait for the copy writes to end.
+    m_context.TransitionImageLayout(
+    {
+        .image          = m_image,
+        .oldLayout      = vk::ImageLayout::eTransferDstOptimal,
+        .srcStageMask   = vk::PipelineStageFlagBits2::eTransfer,
+        .srcAccessMask  = vk::AccessFlagBits2::eTransferWrite,
+        .newLayout      = vk::ImageLayout::eShaderReadOnlyOptimal,
+        .dstStageMask   = vk::PipelineStageFlagBits2::eFragmentShader,
+        .dstAccessMask  = vk::AccessFlagBits2::eShaderRead,
+        .levelCount     = m_mipLevels
+    });
 }
 
 void Texture::CreateTextureImageView()

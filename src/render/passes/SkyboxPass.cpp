@@ -5,15 +5,25 @@
 #include "core/VulkanContext.h"
 #include "render/EnvironmentMap.h"
 #include "render/RenderTarget.h"
+#include "resources/ResourceManager.h"
+#include "resources/Shader.h"
 
-SkyboxPass::SkyboxPass(const std::string& name, VulkanContext& context, const CreateInfo& info) :
+#include <stdexcept>
+
+SkyboxPass::SkyboxPass(const std::string& name, VulkanContext& context, ResourceManager& resourceManager, const CreateInfo& info) :
     RenderPass(name),
-    m_context(context), 
+    m_context(context),
     m_info(info)
 {
-    CreateDescriptorSetLayout();
-    CreatePipeline();
+    const auto shader = resourceManager.LoadResource<Shader>(context, "skybox.slang", vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment));
 
+    if (!shader)
+    {
+        throw std::runtime_error("SkyboxPass: failed to load skybox.slang");
+    }
+
+    CreateDescriptorSetLayout();
+    CreatePipeline(*shader);
     CreateDescriptorPool();
     CreateDescriptorSets();
 }
@@ -25,21 +35,16 @@ SkyboxPass::SkyboxPass(const std::string& name, VulkanContext& context, const Cr
 void SkyboxPass::BeginPass(vk::raii::CommandBuffer& cmd, const FrameInfo& frame)
 {
     // Transition MSAA color attachment: Undefined -> ColorAttachmentOptimal
+    m_context.TransitionImageLayout(cmd,
     {
-        vk::ImageMemoryBarrier2 barrier;
-        barrier.setSrcStageMask(vk::PipelineStageFlagBits2::eTopOfPipe)
-            .setSrcAccessMask(vk::AccessFlagBits2::eNone)
-            .setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-            .setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
-            .setOldLayout(vk::ImageLayout::eUndefined)
-            .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
-            .setImage(m_info.renderTarget->GetColorImage())
-            .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
-
-        vk::DependencyInfo depInfo;
-        depInfo.setImageMemoryBarriers(barrier);
-        cmd.pipelineBarrier2(depInfo);
-    }
+        .image          = m_info.renderTarget->GetColorImage(),
+        .oldLayout      = vk::ImageLayout::eUndefined,
+        .srcStageMask   = vk::PipelineStageFlagBits2::eTopOfPipe,
+        .srcAccessMask  = vk::AccessFlagBits2::eNone,
+        .newLayout      = vk::ImageLayout::eColorAttachmentOptimal,
+        .dstStageMask   = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .dstAccessMask  = vk::AccessFlagBits2::eColorAttachmentWrite
+    });
 
     // Color attachment: MSAA image. No resolve as we are not the last pass.
     vk::RenderingAttachmentInfo colorAttachment;
@@ -104,32 +109,21 @@ void SkyboxPass::CreateDescriptorSetLayout()
         .pBindings = bindings.data()
     };
 
-    m_layout = vk::raii::DescriptorSetLayout(m_context.GetDevice(), layoutInfo);
+    m_descriptorSetLayout = vk::raii::DescriptorSetLayout(m_context.GetDevice(), layoutInfo);
 }
 
-void SkyboxPass::CreatePipeline()
+void SkyboxPass::CreatePipeline(const Shader& shader)
 {
-    vk::PushConstantRange pushConstantRange;
-    pushConstantRange.setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setOffset(0)
-        .setSize(sizeof(glm::mat4));
-
-    std::array<vk::DescriptorSetLayout, 1> layouts{ *m_layout };
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo
-    {
-        .setLayoutCount = 1,
-        .pSetLayouts = layouts.data(),
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pushConstantRange
-    };
-    m_pipelineLayout = vk::raii::PipelineLayout(m_context.GetDevice(), pipelineLayoutInfo);
-
-    m_pipeline = PipelineBuilder(m_context)
-        .SetShader(*m_info.shader)
-        .SetLayout(*m_pipelineLayout)
+    auto [layout, pipeline] = PipelineBuilder(m_context)
+        .SetShader(shader)
+        .SetDescriptorSetLayouts(*m_descriptorSetLayout)
+        .SetPushConstants(vk::ShaderStageFlagBits::eFragment, sizeof(glm::mat4))
         .SetColorFormat(m_info.renderTarget->GetColorFormat())
         .SetSamples(m_info.renderTarget->GetSamples())
         .Build();
+
+    m_pipelineLayout = std::move(layout);
+    m_pipeline       = std::move(pipeline);
 }
 
 void SkyboxPass::CreateDescriptorPool()
@@ -144,7 +138,7 @@ void SkyboxPass::CreateDescriptorPool()
 
 void SkyboxPass::CreateDescriptorSets()
 {
-    std::vector<vk::raii::DescriptorSet> sets = DescriptorAllocator::AllocateSets(m_context, m_descriptorPool, m_layout, 1);
+    std::vector<vk::raii::DescriptorSet> sets = DescriptorAllocator::AllocateSets(m_context, m_descriptorPool, m_descriptorSetLayout, 1);
     m_descriptorSet = std::move(sets[0]);
 
     vk::DescriptorImageInfo imageInfo

@@ -136,17 +136,25 @@ public:
     std::pair<vk::raii::Image, vk::raii::DeviceMemory>  CreateImage(const ImageDescription& imageDesc);
 
     /**
-     * @brief Transitions an image between Vulkan layouts.
+     * @brief Transitions an image in its own one-time command buffer, and waits for it.
      *
-     * Inserts the required pipeline barrier to move an image between layouts such
-     * as undefined -> transfer destination -> shader read.
+     * For transitions outside any other recording, such as texture uploads. Waits for
+     * the queue to go idle, so it cannot be used in the middle of other commands.
      *
-     * @param image       Image to transition.
-     * @param oldLayout   Current image layout.
-     * @param newLayout   Target image layout.
-     * @param mipLevels   Number of mip levels affected.
+     * @param transition  Image, layouts, masks and subresource range of the barrier.
      */
-    void TransitionImageLayout(const vk::raii::Image& image, vk::ImageLayout oldLayout, vk::ImageLayout newLayout, uint32_t mipLevels);
+    void TransitionImageLayout(const ImageTransition& transition);
+
+    /**
+     * @brief Records an image transition into a command buffer already being recorded.
+     *
+     * For barriers between other commands of the same recording: frame rendering, or
+     * generation steps that transition an image several times within one submit.
+     *
+     * @param commandBuffer  Command buffer in the recording state.
+     * @param transition     Image, layouts, masks and subresource range of the barrier.
+     */
+    void TransitionImageLayout(vk::raii::CommandBuffer& commandBuffer, const ImageTransition& transition);
 
     /**
      * @brief Copies a buffer into a 2D image.

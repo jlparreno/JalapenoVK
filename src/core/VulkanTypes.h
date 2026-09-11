@@ -47,3 +47,29 @@ struct ImageViewDescription
     uint32_t             baseArrayLayer { 0 };                                          // First array layer. Selects the face when targeting one side of a cubemap.
     uint32_t             layerCount     { 1 };                                          // How many layers from baseArrayLayer. Exactly 6 for an eCube view.
 };
+
+/**
+ * @brief Everything TransitionImageLayout() needs to record one image barrier.
+ *
+ * Grouped as the barrier reads: the image, what it was before (layout, and the stage
+ * and access to wait for), what it will be after (layout, and the stage and access
+ * to hold back), and the part of the image affected.
+ */
+struct ImageTransition
+{
+    vk::Image               image           { nullptr };                                // Image to transition.
+
+    vk::ImageLayout         oldLayout       { vk::ImageLayout::eUndefined };            // Current layout. eUndefined discards the contents.
+    vk::PipelineStageFlags2 srcStageMask    { vk::PipelineStageFlagBits2::eNone };      // Stages that must finish with the image before the barrier.
+    vk::AccessFlags2        srcAccessMask   { vk::AccessFlagBits2::eNone };             // Writes those stages made that must be made available.
+
+    vk::ImageLayout         newLayout       { vk::ImageLayout::eUndefined };            // Target layout. Always set by the caller.
+    vk::PipelineStageFlags2 dstStageMask    { vk::PipelineStageFlagBits2::eNone };      // Stages that must wait for the barrier before using the image.
+    vk::AccessFlags2        dstAccessMask   { vk::AccessFlagBits2::eNone };             // Accesses those stages will make, which the barrier makes the data visible to.
+
+    vk::ImageAspectFlags    aspect          { vk::ImageAspectFlagBits::eColor };        // Which aspect. Must be set to eDepth for a depth image: the default only suits color.
+    uint32_t                baseMipLevel    { 0 };                                      // First mip level affected.
+    uint32_t                levelCount      { 1 };                                      // How many levels from baseMipLevel.
+    uint32_t                baseArrayLayer  { 0 };                                      // First array layer affected.
+    uint32_t                layerCount      { 1 };                                      // How many layers from baseArrayLayer. 6 for a whole cube.
+};
